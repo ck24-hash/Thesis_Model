@@ -1,0 +1,9 @@
+pypsa>=1.0
+highspy
+pandas
+numpy
+matplotlib
+openpyxl
+ipykernel
+jupyter
+pytest

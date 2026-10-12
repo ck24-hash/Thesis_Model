@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/
+
+# results are regenerated
+results/*
+!results/.gitkeep
+
+# real input data may be confidential: only the dummy example is tracked
+data/*.xlsx
+!data/*EXAMPLE*.xlsx
