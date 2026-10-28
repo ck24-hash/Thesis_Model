@@ -1,0 +1,13 @@
+{
+  "_about": "Battery and module technology, the same in every country. A country file params/tech/<country>.json may override it. The ancillary reserve is in params/ancillary/.",
+  "battery": {
+    "c_rate": 0.5,
+    "efficiency_store": 0.97,
+    "efficiency_dispatch": 0.97,
+    "soc_min": 0.10,
+    "soc_max": 0.90,
+    "self_discharge_per_day": 0.001
+  },
+  "module_wp": 146,
+  "module_wp_note": "the yield file says 145 Wp per module; to confirm"
+}

@@ -1,0 +1,33 @@
+{
+  "_about": "Westland Infra, MS (medium voltage) connection, large consumer, 2026, excl. BTW. Source: Westland Infra 'Aansluit- en transporttarieven elektriciteit grootverbruik 2026' (ACM tarievenbesluit).",
+  "utility": "Westland Infra MS",
+  "year": 2026,
+  "pricing": "day_ahead",
+  "import_price": {
+    "transport": {
+      "order": 3,
+      "by": "flat",
+      "per_kwh": 0.0242,
+      "note": "variable transport tariff: 24.20 EUR/MWh"
+    }
+  },
+  "capacity_charges": {
+    "contracted": {
+      "order": 1,
+      "type": "yearly_peak",
+      "window": "all",
+      "per_kw_year": 24.4839,
+      "note": "contracted capacity (kW contract) 24.4839 EUR/kW/yr on the year's max import, all hours (the NL notebook rounded it to 24.48; 2025: 26.03); assumes the contract follows the metered peak"
+    },
+    "monthly": {
+      "order": 2,
+      "type": "monthly_peak",
+      "window": "all",
+      "ratchet": "none",
+      "per_kw_month": 3.0860,
+      "note": "kWmax per month 3.0860 EUR/kW/month on each month's max import, all hours, no ratchet (the NL notebook rounded it to 3.09; 2025: 3.28)"
+    }
+  },
+  "fixed_per_year": 441,
+  "fixed_note": "Vastrecht 441 EUR/yr: not in the model (the same with and without battery)"
+}

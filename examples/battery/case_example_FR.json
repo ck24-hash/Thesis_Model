@@ -1,0 +1,28 @@
+{
+  "input_file": "Example_input_PV_synthetic_2026.xlsx",
+  "year": 2026,
+  "market": {
+    "country": "FR",
+    "region": "HTA",
+    "utility": "Reference",
+    "year": 2025
+  },
+  "business_model": "direct_sales",
+  "pv_modules": 500,
+  "use_existing_pv": false,
+  "grid": {
+    "import_max_kw": 750,
+    "export_max_kw": 750
+  },
+  "regime": {
+    "auto": true
+  },
+  "sizing": {
+    "objective": "profit",
+    "sweep_kwh": [
+      100,
+      200
+    ]
+  },
+  "tag": "example_FR"
+}

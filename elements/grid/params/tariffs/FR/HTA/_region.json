@@ -1,0 +1,37 @@
+{
+  "_about": "HTA (medium voltage) in mainland France: the network tariff TURPE 7 HTA, 5 time slots with fixed pointe. Source: CRE deliberation 2025-78 of 13 March 2025 (TURPE 7 HTA-BT, in force 1 August 2025), pages 150-153. The grid operator sets the exact hours locally within the CRE rules; the hours below are the FR notebook's choice within those rules.",
+  "calendar": {
+    "winter_months": [11, 12, 1, 2, 3],
+    "winter_note": "saison haute: November to March by default",
+    "peak_hours": {"mon": [6, 22], "tue": [6, 22], "wed": [6, 22], "thu": [6, 22], "fri": [6, 22],
+                   "sat": [6, 22], "sun": null},
+    "peak_hours_note": "Sunday is entirely off-peak (heures creuses). Monday to Saturday have 8 off-peak hours set by the grid operator, here 22:00-06:00. CRE is moving off-peak hours from late 2025 to end 2027: summer favours 02:00-06:00 and 11:00-17:00 and avoids 07:00-10:00 and 18:00-23:00; winter avoids 07:00-11:00 and 17:00-21:00. A site's own hours go in its case overrides (tariff.calendar.peak_hours), as one peak window per weekday: off-peak hours split in two periods, or different in summer and winter, cannot be entered yet",
+    "pointe": {"months": [12, 1, 2], "days": ["mon", "tue", "wed", "thu", "fri", "sat"], "hours": [[8, 10], [17, 19]]},
+    "pointe_note": "fixed pointe: December to February, Monday to Saturday, 2 hours in the 08:00-12:00 window and 2 hours in the 17:00-21:00 window, the exact hours set by the grid operator (here 08-10 and 17-19)"
+  },
+  "regimes": ["LU", "CU"],
+  "regime_note": "the TURPE option the site chooses for 12 months: LU long utilisation (the default, first) or CU short utilisation; choose CU in the case with regime {\"auto\": false, \"manual\": \"CU\"}",
+  "import_price": {
+    "turpe_energy": {
+      "order": 2,
+      "by": "slot",
+      "per_kwh_by_regime": {
+        "LU": {"pointe": 0.0265, "HPH": 0.0210, "HCH": 0.0147, "HPB": 0.0092, "HCB": 0.0068},
+        "CU": {"pointe": 0.0574, "HPH": 0.0423, "HCH": 0.0199, "HPB": 0.0101, "HCB": 0.0069}
+      },
+      "note": "TURPE 7 HTA pointe fixe, energy coefficients c1..c5: LU 2.65 / 2.10 / 1.47 / 0.92 / 0.68 c EUR/kWh, CU 5.74 / 4.23 / 1.99 / 1.01 / 0.69 (CRE 2025-78 p.151). Slots: pointe, HPH and HCH (winter peak and off-peak), HPB and HCB (summer)"
+    }
+  },
+  "capacity_charges": {
+    "turpe_cs": {
+      "order": 1,
+      "type": "staircase",
+      "slots": ["pointe", "HPH", "HCH", "HPB", "HCB"],
+      "per_kw_year_by_regime": {
+        "LU": {"pointe": 35.33, "HPH": 32.30, "HCH": 20.39, "HPB": 14.33, "HCB": 11.56},
+        "CU": {"pointe": 14.41, "HPH": 14.41, "HCH": 14.41, "HPB": 12.55, "HCB": 11.22}
+      },
+      "note": "power component (CS): one subscribed power per slot, non-decreasing pointe <= HPH <= HCH <= HPB <= HCB, CS = b1 x P1 + sum b_i x (P_i - P_(i-1)) EUR/kW/yr (CRE 2025-78 p.150-151). The model subscribes exactly the metered peak of each slot. Fixed CG and CC are left out (the same with and without battery). Import above the contracted power is a hard limit (case grid.import_max_kw), so no CMDPS penalty"
+    }
+  }
+}

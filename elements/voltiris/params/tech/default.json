@@ -1,0 +1,5 @@
+{
+  "_about": "Battery and module technology, the same in every country. A country file params/tech/<country>.json may override it. The ancillary reserve is in params/ancillary/. [voltiris part of the reference file params/tech/default.json]",
+  "module_wp": 146,
+  "module_wp_note": "the yield file says 145 Wp per module; to confirm"
+}

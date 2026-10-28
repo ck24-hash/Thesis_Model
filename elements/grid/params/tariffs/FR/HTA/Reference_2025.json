@@ -1,0 +1,22 @@
+{
+  "_about": "Supplier energy prices of the FR notebook: HTA 5-index 'sur courbe' supply contract, 2025, excl. VAT. Probably one site's contract: a site's own supplier prices go in its case overrides (tariff.import_price.energy.per_kwh).",
+  "utility": "Reference supplier contract",
+  "year": 2025,
+  "pricing": "bands",
+  "battery_export": "pv_only",
+  "battery_export_note": "a fixed-price supply contract may not be resold: the battery exports only energy it stored from PV, energy bought from the grid only serves the site (peak shaving). 'any' lets it export anything, for a contract that allows that",
+  "import_price": {
+    "energy": {
+      "order": 1,
+      "by": "season_period",
+      "per_kwh": {"winter": {"HP": 0.10404, "HD": 0.07541}, "summer": {"HP": 0.05492, "HD": 0.04780}},
+      "note": "supplier energy: HPH 104.04, HCH 75.41, HPE 54.92, HCE 47.80 EUR/MWh; pointe hours are priced as HPH"
+    },
+    "capacity_gc": {
+      "order": 3,
+      "by": "season_period",
+      "per_kwh": {"winter": {"HP": 0.008765095, "HD": 0.0}, "summer": {"HP": 0.0, "HD": 0.0}},
+      "note": "capacity guarantee cost passed through by the supplier: coefficient 0.5983 on winter peak x 1465 EUR/GC / 100 = 8.765 EUR/MWh"
+    }
+  }
+}

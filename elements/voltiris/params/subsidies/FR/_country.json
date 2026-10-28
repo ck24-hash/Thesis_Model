@@ -1,0 +1,9 @@
+{
+  "_about": "Subsidies in France, as in the FR notebook: 50% of the battery and 50% of the PV (looks like a study scenario rather than a national scheme; to confirm). Modes as in CH: percent, fixed, threshold. [voltiris part of the reference file params/subsidies/FR/_country.json]",
+  "pv": {
+    "mode": "percent",
+    "frac": 0.5,
+    "amount": 0,
+    "threshold_modules": null
+  }
+}

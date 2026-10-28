@@ -1,0 +1,11 @@
+{
+  "_about": "Battery and module technology, the same in every country. A country file params/tech/<country>.json may override it. The ancillary reserve is in params/ancillary/. [battery part of the reference file params/tech/default.json]",
+  "battery": {
+    "c_rate": 0.5,
+    "efficiency_store": 0.97,
+    "efficiency_dispatch": 0.97,
+    "soc_min": 0.1,
+    "soc_max": 0.9,
+    "self_discharge_per_day": 0.001
+  }
+}

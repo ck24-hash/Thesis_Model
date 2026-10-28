@@ -1,0 +1,13 @@
+{
+  "_about": "Subsidies for a site in the canton of Geneva. Modes: percent (frac x gross), fixed (gross - amount), threshold (frac up to the threshold size, the discount capped at frac x cost of the threshold size above it). [battery part of the reference file params/subsidies/CH/GE.json]",
+  "battery": {
+    "mode": "threshold",
+    "frac": 0.75,
+    "amount": 0,
+    "threshold_mode": "ocan",
+    "threshold_kwh": 422,
+    "ocan_factor": 0.6,
+    "ocan_note": "OCAN rule: max subsidised size (kWh) = yearly load (kWh) / 365 x ocan_factor. threshold_mode manual uses threshold_kwh as typed"
+  },
+  "replacements_subsidised": false
+}

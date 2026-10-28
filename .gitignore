@@ -1,13 +1,7 @@
-.venv/
 __pycache__/
-.ipynb_checkpoints/
-*.egg-info/
+*.pyc
 .pytest_cache/
-
-# results are regenerated
-results/*
-!results/.gitkeep
-
-# real input data may be confidential: only the dummy example is tracked
-data/*.xlsx
-!data/*EXAMPLE*.xlsx
+.venv/
+interface/app_data/
+interface/app_runs/
+~$*

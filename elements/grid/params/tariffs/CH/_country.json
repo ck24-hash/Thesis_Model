@@ -1,0 +1,12 @@
+{
+  "_about": "Switzerland: what holds for every canton and utility. Merged under the canton and utility files (the more specific file wins).",
+  "currency": "CHF",
+  "import_price": {
+    "federal": {
+      "order": 3,
+      "by": "flat",
+      "per_kwh": 0.0276,
+      "note": "federal levies: renewable 0.0230 + reserve 0.0041 + solidarity 0.0005 (SIG 2026 p.14)"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "_about": "France: what holds in the whole country. Merged under the voltage level (HTA) and the supplier contract.",
+  "currency": "EUR",
+  "import_price": {
+    "accise": {
+      "order": 4,
+      "by": "flat",
+      "per_kwh": 0.03085,
+      "note": "accise sur l'electricite (ex-TICFE): 30.85 EUR/MWh, the FR notebook's value; to check against the rate of the study year"
+    }
+  },
+  "export": {
+    "basis": "day_ahead",
+    "note": "exports paid at the day-ahead price, negative prices included. One meter: no import and export in the same 15 minutes (the dispatch adds an exact switch where exporting is worth more than importing)"
+  }
+}

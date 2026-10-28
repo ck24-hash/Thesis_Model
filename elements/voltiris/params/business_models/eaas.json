@@ -1,0 +1,6 @@
+{
+  "_about": "Energy as a service: Voltiris owns the modules (no grower capex). The grower pays price_per_mwh for Voltiris energy used on site, split pro rata with an existing PV each 15 minutes; Voltiris keeps its exports, the grower gets the export price on the existing PV only. One meter: no import while there is a PV surplus and export only up to that surplus, so under EaaS the battery does not export.",
+  "type": "eaas",
+  "price_per_mwh": {"amount": 180, "currency": "CHF"},
+  "price_note": "180 CHF/MWh = 196.2 EUR/MWh of Voltiris energy used on site"
+}

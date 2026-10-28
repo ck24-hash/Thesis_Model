@@ -1,0 +1,12 @@
+{
+  "input_file": "Input_Python-CH_+PV - <site> 2026.xlsx",
+  "market": {"country": "CH", "region": "GE", "utility": "SIG", "year": 2026},
+  "business_model": "direct_sales",
+  "pv_modules": 2500,
+  "use_existing_pv": true,
+  "grid": {"import_max_kw": 750, "export_max_kw": 750},
+  "regime": {"auto": true},
+  "sizing": {"objective": "profit", "custom_kwh": 422},
+  "overrides": {},
+  "tag": "<site>_2026"
+}

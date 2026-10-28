@@ -1,0 +1,11 @@
+{
+  "_about": "Ancillary services in France: the CH structure, part of the battery is kept out of the dispatch and earns a fixed rate per kW of reserved power.",
+  "rate_per_kw_year": 98.1,
+  "rate_note": "EUR/kW/yr: the CH rate 90 CHF x 1.09; set the country's own rate here when known",
+  "reserve": {
+    "mode": "percent",
+    "frac": 0.25,
+    "kwh": 150,
+    "note": "share of the usable SoC window (and the same share of inverter power) kept out of the dispatch for grid services; mode percent uses frac, fixed_kwh uses kwh (capped at the window)"
+  }
+}

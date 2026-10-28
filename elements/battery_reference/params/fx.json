@@ -1,0 +1,5 @@
+{
+  "_about": "Exchange rate for money values shared by every country. A value written as {\"amount\": x, \"currency\": \"CHF\"} is converted into the market's currency when the parameters are loaded, so every country pays the same real price.",
+  "EUR_per_CHF": 1.09,
+  "note": "1 CHF = 1.09 EUR, the rate of the CH notebook"
+}

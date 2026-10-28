@@ -1,0 +1,46 @@
+{
+  "_about": "SIG (Services Industriels de Geneve) 2026, Pro BT Double Periode, <=10% Vitale Vert, excl. VAT. Source: CH15_Tarifs-SIG_26.pdf.",
+  "utility": "SIG",
+  "year": 2026,
+  "pricing": "bands",
+  "calendar": {
+    "winter_months": [10, 11, 12, 1, 2, 3],
+    "peak_hours": {"mon": [7, 22], "tue": [7, 22], "wed": [7, 22], "thu": [7, 22], "fri": [7, 22],
+                   "sat": [17, 22], "sun": [17, 22]},
+    "peak_hours_note": "HP weekday 07:00-22:00, weekend 17:00-22:00; inferred from SIG diagram p.8/p.12, UNCONFIRMED. Winter Oct-Mar (p.12)"
+  },
+  "regimes": ["A", "B"],
+  "regime_rule": {"type": "dup", "threshold_h": 3000, "at_or_below": "A", "above": "B"},
+  "regime_note": "DUP = yearly grid import kWh / yearly HP peak kW (SIG p.15). DUP <= 3000 h: Optimisation A, above: B",
+  "import_price": {
+    "energy": {
+      "order": 1,
+      "by": "season_period",
+      "per_kwh": {"winter": {"HP": 0.1130, "HD": 0.0780}, "summer": {"HP": 0.1050, "HD": 0.0720}},
+      "note": "SIG energy component (p.14)"
+    },
+    "network": {
+      "order": 2,
+      "by": "period",
+      "per_kwh_by_regime": {"A": {"HP": 0.0685, "HD": 0.0415}, "B": {"HP": 0.0490, "HD": 0.0275}},
+      "apply_network_levy": true,
+      "note": "network travail (p.14-15), plus the cantonal levy"
+    }
+  },
+  "capacity_charges": {
+    "demand": {
+      "type": "monthly_peak",
+      "window": "peak",
+      "ratchet": "annual",
+      "per_kw_month_by_regime": {"A": 6.40, "B": 10.75},
+      "apply_network_levy": true,
+      "note": "billed monthly on the running max HP import from 1 Jan through that month (p.15/p.20), plus the cantonal levy"
+    }
+  },
+  "export": {
+    "basis": "fixed",
+    "per_kwh": 0.05,
+    "note": "rate used in the model; SIG p.31 gives 0.083 (Opt A) and 0.066 (Opt B) for storage, UNCONFIRMED for PV",
+    "alternatives": {"A": 0.083, "B": 0.066}
+  }
+}

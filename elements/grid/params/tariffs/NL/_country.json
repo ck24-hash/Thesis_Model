@@ -1,0 +1,21 @@
+{
+  "_about": "Netherlands: what holds in the whole country. A dynamic (day-ahead) supply contract is assumed: import at the day-ahead price plus taxes and transport, export at the day-ahead price. Merged under the grid area and grid operator files.",
+  "currency": "EUR",
+  "import_price": {
+    "day_ahead": {
+      "order": 1,
+      "by": "day_ahead",
+      "note": "the day-ahead price of each 15 minutes (input column 'Day ahead kWh', EUR/kWh); no supplier margin modelled"
+    },
+    "energy_tax": {
+      "order": 2,
+      "by": "flat",
+      "per_kwh": 0.03735,
+      "note": "Energiebelasting 2026, staffel 4 (50,001-10,000,000 kWh/yr): 37.35 EUR/MWh, applied to every imported kWh (one bracket rate, no bracket structure). Source: Vattenfall Grootzakelijk, tarieven 2026"
+    }
+  },
+  "export": {
+    "basis": "day_ahead",
+    "note": "exports paid at the day-ahead price, negative prices included (PV must run, so a surplus at a negative price costs money unless the battery stores it)"
+  }
+}

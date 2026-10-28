@@ -1,0 +1,11 @@
+{
+  "_about": "Energy management system (EMS) costs, the same real price in every country (converted with params/fx.json). A country file params/ems/<country>.json may override them. Yearly fees and the fixed cost are deducted from the battery's yearly value in the sizing and the payback; the capex is added to the battery investment.",
+  "fixed_per_year": {"amount": 2500, "currency": "CHF"},
+  "fixed_note": "yearly EMS cost: 2,500 CHF = 2,725 EUR",
+  "ancillary_fee_pct": {"voltiris": 0.0, "external": 0.0},
+  "ancillary_fee_note": "share of the yearly ancillary revenue paid to Voltiris (its EMS) and to an external company (aggregator)",
+  "savings_fee_pct": {"voltiris": 0.0, "external": 0.0},
+  "savings_fee_note": "share of the yearly saving on the electricity bill against the no-battery case (energy + peak savings, not ancillary), only when that saving is positive",
+  "capex": {"amount": 1000, "currency": "EUR"},
+  "capex_note": "EMS hardware, bought once with the battery: 1,000 EUR = 917 CHF; not subsidised and not bought again at battery replacements"
+}

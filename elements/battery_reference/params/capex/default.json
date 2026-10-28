@@ -1,0 +1,9 @@
+{
+  "_about": "Investment prices, the same real price in every country (converted with params/fx.json), excl. VAT. A country file params/capex/<country>.json may override them.",
+  "battery_tiers_per_kwh": {"tiers": [[100, 400], [2000, 400]], "currency": "CHF"},
+  "battery_tiers_note": "(kWh, price per kWh) sorted ascending, linear in between; flat 400 CHF/kWh (436 EUR/kWh) all-in for every size",
+  "pv_per_wp": {"amount": 1.8, "currency": "CHF"},
+  "pv_note": "price per Wp of Voltiris modules: 1.80 CHF/Wp, 1.962 EUR/Wp",
+  "battery_replacement_frac": 0.60,
+  "battery_replacement_note": "over the PV life the battery is bought once in full, then (PV life / battery life - 1) more times at this share of the gross price (cells only; slab, enclosure and inverters reused), unsubsidised. With 25 and 10 years: 1 full + 1.5 x 60%, i.e. 25 years of battery"
+}
