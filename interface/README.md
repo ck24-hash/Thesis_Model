@@ -27,7 +27,12 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
    tariff), Commercial (business model, prices, lifetimes, ancillary rate), Subsidies, EMS. Shown when they apply.
 4. **Run**: the setup check (nothing is solved), the run with its progress and log, other overrides (JSON), the case
    file, every parameter used. It writes `case_<tag>.json` (system format) to the output folder and runs it.
-5. **Results**: the run type's results and the files.
+5. **Results**, in tabs: Overview (key numbers, why this size, where the value comes from), Sizes tested, Bills and
+   payback, Over the year (per day and one week), Month by month, Files. After a refresh the last run's results
+   come back.
+
+The menu button (top left) hides or shows the menu. Parameter fields show their default and a reset button when
+changed; an i next to a field explains it.
 
 The address keeps the page (`#voltiris`, `#run`), so a refresh opens the same page.
 

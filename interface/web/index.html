@@ -10,6 +10,7 @@
 <body>
 <header class="top">
   <div class="brand">
+    <button id="navToggle" class="icon-btn" aria-label="Hide or show the menu" title="Hide or show the menu" aria-expanded="true">&#9776;</button>
     <strong>Greenhouse energy model</strong>
     <span class="muted">thesis model &middot; choose a scenario or build your own</span>
   </div>
@@ -39,7 +40,7 @@
         <select id="presetSelect"></select>
       </label>
       <button id="presetApply">Use this preset</button>
-      <label class="field small">Data year <input id="dataYear" type="number" value="2026"></label>
+      <label class="field small"><span>Data year <span class="info" tabindex="0" data-tip="The year of the time stamps in every input file (the files give Month, Day, Hour and Minute). It sets the calendar: weekdays, peak hours, seasons.">i</span></span> <input id="dataYear" type="number" value="2026"></label>
     </div>
     <p class="hint" id="caseInfo">Loading a case fills every page with its settings. A preset only ticks blocks (thesis.md, section 2.1).</p>
   </div>
@@ -79,7 +80,7 @@
   <div class="card">
     <h2>Modules</h2>
     <div class="row">
-      <label class="field">Voltiris modules <input id="sModules" type="number" min="0" step="1" value="0"></label>
+      <label class="field"><span>Voltiris modules <span class="info" tabindex="0" data-tip="How many modules are installed. Output = yield of one module (the input file) × this count. 0 = no Voltiris output.">i</span></span> <input id="sModules" type="number" min="0" step="1" value="0"></label>
       <div id="kp-voltiris" class="inline-params"></div>
     </div>
   </div>
@@ -105,13 +106,13 @@
     <div class="card">
       <h2>Connection</h2>
       <div class="row">
-        <label class="field">Import limit, kW <input id="sImport" type="number" min="0" placeholder="automatic"></label>
-        <label class="field">Export limit, kW <input id="sExport" type="number" min="0" placeholder="automatic"></label>
+        <label class="field"><span>Import limit, kW <span class="info" tabindex="0" data-tip="The most the site can draw from the grid at any time. Empty = automatic: 2 × the year's highest load.">i</span></span> <input id="sImport" type="number" min="0" placeholder="automatic"></label>
+        <label class="field"><span>Export limit, kW <span class="info" tabindex="0" data-tip="The most the site can feed into the grid at any time. Empty = automatic: 1.1 × the year's highest PV output.">i</span></span> <input id="sExport" type="number" min="0" placeholder="automatic"></label>
       </div>
-      <p class="hint">Automatic: import 2 &times; the year's highest load, export 1.1 &times; the year's highest PV.</p>
+      <p class="hint">Default: automatic (empty).</p>
     </div>
     <div class="card">
-      <h2>Regime</h2>
+      <h2>Regime <span class="info" tabindex="0" data-tip="Some tariffs have two price schedules. CH SIG: A or B, set by the hours of use (yearly import ÷ peak). FR TURPE: LU or CU, chosen by the site. NL: one schedule.">i</span></h2>
       <div class="row">
         <label class="check"><input type="radio" name="regimeMode" value="auto" checked> Automatic</label>
         <label class="check"><input type="radio" name="regimeMode" value="manual"> Fixed:</label>
@@ -131,7 +132,7 @@
   <div class="callout sys-note" hidden></div>
   <div class="two-col">
     <div class="card">
-      <h2>Technology <span class="muted">grey = file value; type to change it for this run</span></h2>
+      <h2>Technology</h2>
       <div id="kp-battery" class="param-groups single"></div>
     </div>
     <div class="card">
@@ -142,25 +143,25 @@
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Grid services reserve</h2>
+      <h2>Grid services reserve <span class="info" tabindex="0" data-tip="Part of the battery is offered to the grid operator (ancillary services) instead of being used on site. It earns a yearly rate per reserved kW but leaves less battery for the site. Default: on.">i</span></h2>
       <label class="switch"><input type="checkbox" id="sAncillary" checked><span></span> On</label>
     </div>
     <p class="hint">A share of the battery is kept out of the dispatch for grid services and paid per reserved kW and year (the rate is on the Commercial page). Off sets the reserve and its rate to 0 for this run.</p>
     <div id="kp-reserve" class="param-row"></div>
   </div>
   <div class="card">
-    <h2>Sizing</h2>
-    <div class="row">
+    <h2>Sizing <span class="info" tabindex="0" data-tip="Each size in the list is optimised over the whole year, then one is chosen by the objective. The model compares only the sizes it solves.">i</span></h2>
+    <div class="row center">
       <div class="seg" id="objSeg">
         <label><input type="radio" name="objective" value="profit" checked><span>Lifetime profit</span></label>
         <label><input type="radio" name="objective" value="payback"><span>Payback</span></label>
         <label><input type="radio" name="objective" value="custom"><span>Custom size</span></label>
       </div>
-      <label class="field small" id="customRow">Custom size, kWh <input id="zCustom" type="number" min="1" value="422"></label>
+      <label class="inline-field" id="customRow">size <input id="zCustom" type="number" min="1" value="422" class="num"> kWh</label>
     </div>
     <p class="hint" id="objHint"></p>
     <div class="row">
-      <label class="field grow">Sizes to test, kWh <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
+      <label class="field grow"><span>Sizes to test, kWh <span class="info" tabindex="0" data-tip="Comma separated. Empty = the default list, 100 to 1,500 kWh every 100. Each size takes a few seconds to a minute to solve.">i</span></span> <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
       <button id="zDefault">Default list</button>
     </div>
     <div class="row compact">
@@ -238,13 +239,13 @@
   <div class="card">
     <h2>Business model</h2>
     <div class="row">
-      <label class="field grow">Voltiris modules <select id="mBusiness"></select></label>
+      <label class="field grow"><span>Voltiris modules <span class="info" tabindex="0" data-tip="Direct sales (default): the grower buys the modules, pays their price and gets the feed-in on all exports. EaaS: Voltiris owns them, the grower pays a price per MWh of Voltiris energy used on site and gets the feed-in on the existing PV's exports only.">i</span></span> <select id="mBusiness"></select></label>
     </div>
     <p class="hint">EaaS: Voltiris owns the modules and the grower pays per MWh of Voltiris energy used on site; the system then changes the grid's export value and bounds.</p>
   </div>
   <div class="card">
     <h2>Prices, lifetimes, revenue <span class="muted" id="curCommercial"></span></h2>
-    <p class="hint">Grey numbers are the values from the parameter files. Type a value to change it for this run (highlighted); clear it to go back to the file value.</p>
+    <p class="hint">Each field shows its default (from the parameter files). Type a value to change it for this run; &#8634; brings the default back.</p>
     <div id="kp-commercial" class="param-groups"></div>
   </div>
   <div class="card pv-part" hidden><h2>In numbers <span class="muted">from the setup check</span></h2><div class="tiles" id="pvMoney"></div></div>
@@ -312,71 +313,86 @@
 
 <!-- RESULTS ----------------------------------------------------------------------------------------------------- -->
 <section id="step-results" class="step">
-  <h1>Results</h1>
-  <p class="lead" id="resLead">Run to see the results here.</p>
+  <div class="res-head">
+    <div><h1>Results</h1><p class="lead" id="resLead">Run to see the results here.</p></div>
+  </div>
+  <div class="tabs res-tabs" id="resTabs" hidden>
+    <button data-rtab="overview" class="active">Overview</button>
+    <button data-rtab="sizes">Sizes tested</button>
+    <button data-rtab="bills">Bills and payback</button>
+    <button data-rtab="time">Over the year</button>
+    <button data-rtab="months">Month by month</button>
+    <button data-rtab="files">Files</button>
+  </div>
   <div id="res-battery_study" class="res-body" hidden>
-    <div class="tiles big" id="resTiles"></div>
-    <div class="card">
-      <h2>Why this size</h2>
+    <div class="rtab" data-rtab="overview">
+      <div class="tiles big" id="resTiles"></div>
       <div class="callout" id="resWhy"></div>
-      <div class="table-wrap"><table class="grid" id="resWhyTable"></table></div>
-      <p class="hint" id="resWhyNote"></p>
-    </div>
-    <div class="card">
-      <h2>Where the yearly value comes from</h2>
-      <div class="two">
-        <div class="chart"><canvas id="resValue"></canvas></div>
-        <div class="table-wrap"><table class="grid" id="resValueTable"></table></div>
+      <div class="card">
+        <h2>Where the yearly value comes from</h2>
+        <div class="two">
+          <div class="chart"><canvas id="resValue"></canvas></div>
+          <div class="table-wrap"><table class="grid" id="resValueTable"></table></div>
+        </div>
       </div>
     </div>
-    <div class="card">
-      <h2>Size sweep</h2>
-      <div class="chart tall"><canvas id="resSweep"></canvas></div>
-      <details><summary>Sweep table</summary><div class="table-wrap"><table class="grid" id="resSweepTable"></table></div></details>
-    </div>
-    <div class="card">
-      <h2>Without and with the battery</h2>
-      <div class="table-wrap"><table class="grid" id="resCompare"></table></div>
-      <h3>Yearly bill by component</h3>
-      <div class="table-wrap"><table class="grid" id="resBills"></table></div>
-    </div>
-    <div class="card">
-      <h2>The whole year with the chosen size <span class="muted">energy per day</span></h2>
-      <div class="chart tall"><canvas id="resYear"></canvas></div>
-      <h3>Battery per day</h3>
-      <div class="chart"><canvas id="resYearBattery"></canvas></div>
-      <p class="hint">Each point is one day's total. Discharged is drawn above zero, charged below zero, both measured at the grid side of the battery; the line is the day's highest state of charge (out of <span id="resYearWindow"></span> kWh the optimiser may use).</p>
-    </div>
-    <div class="card">
-      <h2>Dispatch of the chosen size, week by week <span class="muted">hourly average</span></h2>
-      <div class="row slim">
-        <label class="field grow">Week <input type="range" id="resWeek" min="0" max="51" value="25"></label>
-        <span id="resWeekLabel" class="muted"></span>
+    <div class="rtab" data-rtab="sizes" hidden>
+      <div class="card">
+        <h2>Yearly value and payback of each size</h2>
+        <div class="chart"><canvas id="resSweep"></canvas></div>
+        <div class="table-wrap"><table class="grid" id="resWhyTable"></table></div>
+        <p class="hint" id="resWhyNote"></p>
+        <details><summary>Every column of the sweep</summary><div class="table-wrap"><table class="grid" id="resSweepTable"></table></div></details>
       </div>
-      <div class="chart tall"><canvas id="resDispatch"></canvas></div>
-      <div class="chart"><canvas id="resSoc"></canvas></div>
-      <p class="hint">Battery power: positive = discharging, negative = charging. State of charge is the energy inside the usable window.</p>
     </div>
-    <div class="card">
-      <h2>Month by month</h2>
-      <div class="tabs" id="resMonthlyTabs"><button class="active" data-tab="monthly_battery">With battery</button><button data-tab="monthly_no_battery">Without battery</button></div>
-      <div class="table-wrap"><table class="grid" id="resMonthly"></table></div>
+    <div class="rtab" data-rtab="bills" hidden>
+      <div class="card">
+        <h2>Without and with the battery</h2>
+        <div class="table-wrap"><table class="grid" id="resCompare"></table></div>
+        <details><summary>Yearly bill by component</summary><div class="table-wrap"><table class="grid" id="resBills"></table></div></details>
+      </div>
+      <div class="card">
+        <h2>Payback over the PV life <span class="muted">Voltiris and battery together</span></h2>
+        <div class="table-wrap"><table class="grid" id="resPayback"></table></div>
+      </div>
     </div>
-    <div class="card">
-      <h2>Payback scenarios over the PV life</h2>
-      <div class="table-wrap"><table class="grid" id="resPayback"></table></div>
+    <div class="rtab" data-rtab="time" hidden>
+      <div class="card">
+        <h2>Energy per day with the chosen size</h2>
+        <div class="chart"><canvas id="resYear"></canvas></div>
+        <div class="chart short"><canvas id="resYearBattery"></canvas></div>
+        <p class="hint">Battery per day: discharged above zero, charged below, at the grid side; the line is the day's highest state of charge (of <span id="resYearWindow"></span> kWh the optimiser may use). <span id="resCycles"></span></p>
+      </div>
+      <div class="card">
+        <h2>One week, hourly</h2>
+        <div class="row slim">
+          <label class="field grow">Week <input type="range" id="resWeek" min="0" max="51" value="25"></label>
+          <span id="resWeekLabel" class="muted"></span>
+        </div>
+        <div class="chart"><canvas id="resDispatch"></canvas></div>
+        <div class="chart short"><canvas id="resSoc"></canvas></div>
+        <p class="hint">Battery power: positive = discharging, negative = charging. State of charge: the energy inside the usable window.</p>
+      </div>
+    </div>
+    <div class="rtab" data-rtab="months" hidden>
+      <div class="card">
+        <div class="tabs" id="resMonthlyTabs"><button class="active" data-tab="monthly_battery">With battery</button><button data-tab="monthly_no_battery">Without battery</button></div>
+        <div class="table-wrap"><table class="grid" id="resMonthly"></table></div>
+      </div>
     </div>
   </div>
-  <div class="card" id="resFilesCard" hidden>
-    <h2>Files</h2>
-    <div class="row">
-      <a class="button primary" id="dlResults" href="/api/download?kind=results">Results workbook (.xlsx)</a>
-      <a class="button" id="dlSummary" href="/api/download?kind=summary">Summary (.json)</a>
-      <a class="button" id="dlCase" href="/api/download?kind=case">Case file (.json)</a>
-      <button id="openFolder">Open the output folder</button>
+  <div class="rtab" data-rtab="files" id="resFilesCard" hidden>
+    <div class="card">
+      <h2>Files</h2>
+      <div class="row">
+        <a class="button primary" id="dlResults" href="/api/download?kind=results">Results workbook (.xlsx)</a>
+        <a class="button" id="dlSummary" href="/api/download?kind=summary">Summary (.json)</a>
+        <a class="button" id="dlCase" href="/api/download?kind=case">Case file (.json)</a>
+        <button id="openFolder">Open the output folder</button>
+      </div>
+      <p class="hint" id="resFiles"></p>
+      <details><summary>Every summary value</summary><div class="table-wrap"><table class="grid" id="resSummary"></table></div></details>
     </div>
-    <p class="hint" id="resFiles"></p>
-    <details><summary>Every summary value</summary><div class="table-wrap"><table class="grid" id="resSummary"></table></div></details>
   </div>
   <div class="nav-buttons" data-nav></div>
 </section>

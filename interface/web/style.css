@@ -230,36 +230,36 @@ table.grid td.yes { color: var(--good); }
 
 /* system: the greenhouse drawing */
 .system-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.diagram { background: linear-gradient(#f3f8fb, #fbfcfd 70%, #f1f5ee); border: 1px solid var(--rule); border-radius: 12px; }
-.diagram svg { width: 100%; height: auto; display: block; }
+.diagram { background: linear-gradient(#f4f8fb, #fbfcfd 62%, #f2f6ef); border: 1px solid var(--rule); border-radius: 12px; padding: 4px 8px; }
+.diagram svg { width: 100%; max-height: 460px; height: auto; display: block; }
 .diagram .node { cursor: pointer; }
 .diagram .node:focus { outline: none; }
-.diagram .node rect { fill: #f6f8fa; stroke: #c9d0d8; stroke-width: 1.5; transition: fill .15s, stroke .15s; }
-.diagram .node.planned rect { stroke-dasharray: 5 4; }
-.diagram .node.on rect { fill: #fff; stroke: var(--accent); stroke-width: 2.5; }
+.diagram .node rect { fill: #fff; stroke: #d5dbe2; stroke-width: 1.2; filter: drop-shadow(0 1px 1.5px rgba(16, 24, 40, .08)); transition: stroke .15s; }
+.diagram .node.planned rect { fill: #f8fafc; stroke-dasharray: 4 4; filter: none; }
+.diagram .node.on rect { stroke: var(--accent); stroke-width: 2; }
 .diagram .node.planned.on rect { fill: var(--warn-soft); stroke: var(--warn); }
-.diagram .node:hover rect, .diagram .node:focus-visible rect { stroke: var(--accent-ink); stroke-width: 2.5; }
-.diagram .icon { fill: none; stroke: #94a3b8; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.diagram .node:hover rect, .diagram .node:focus-visible rect { stroke: var(--accent-ink); stroke-width: 2; }
+.diagram .icon { fill: none; stroke: #a3adb9; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .diagram .node.on .icon { stroke: var(--accent); }
 .diagram .node.planned.on .icon { stroke: var(--warn); }
-.diagram .name { font: 600 13.5px var(--sans); fill: var(--ink); }
-.diagram .sub { font: 11.5px var(--sans); fill: var(--muted); }
+.diagram .name { font: 600 13px var(--sans); fill: var(--ink); }
+.diagram .node.planned .name { fill: var(--ink2); }
+.diagram .sub { font: 11px var(--sans); fill: var(--muted); }
 .diagram .tick { fill: var(--accent); }
 .diagram .node.planned .tick { fill: var(--warn); }
-.diagram .tickmark { stroke: #fff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.diagram .flow { stroke-width: 3; opacity: .2; stroke-dasharray: 2 7; stroke-linecap: round; }
-.diagram .flow.on { opacity: .95; stroke-dasharray: 9 6; animation: flow 1.1s linear infinite; }
-@keyframes flow { to { stroke-dashoffset: -30; } }
-@media (prefers-reduced-motion: reduce) { .diagram .flow.on { animation: none; } }
-.diagram .gh .glass { fill: #eef2f5; stroke: #94a3b8; stroke-width: 2; transition: fill .15s; }
-.diagram .gh.on .glass { fill: #e7f5ec; stroke: #15803d; }
-.diagram .gh:hover .glass, .diagram .gh:focus-visible .glass { stroke: var(--accent-ink); stroke-width: 3; }
-.diagram .gh .pane { stroke: #cbd5e1; stroke-width: 1; }
+.diagram .tickmark { stroke: #fff; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.diagram .flow { fill: none; stroke-width: 2.6; stroke-linecap: round; stroke-dasharray: 8 6; animation: flow 1.2s linear infinite; opacity: .9; }
+@keyframes flow { to { stroke-dashoffset: -28; } }
+@media (prefers-reduced-motion: reduce) { .diagram .flow { animation: none; } }
+.diagram .gh .glass { fill: #eef2f5; stroke: #a3adb9; stroke-width: 1.8; transition: fill .15s; }
+.diagram .gh.on .glass { fill: #e9f6ee; stroke: #2f855a; }
+.diagram .gh:hover .glass, .diagram .gh:focus-visible .glass { stroke: var(--accent-ink); stroke-width: 2.5; }
+.diagram .gh .pane { stroke: #d5dde5; stroke-width: 1; }
 .diagram .gh .plant { fill: #cbd5e1; }
-.diagram .gh.on .plant { fill: #5bbf7a; }
-.diagram .gh .module { stroke: #1e3a8a; stroke-width: 5; stroke-linecap: round; }
-.diagram .gh-name { font: 700 17px var(--sans); fill: var(--ink); text-anchor: middle; }
-.diagram .gh-sub { font: 12.5px var(--sans); fill: var(--ink2); text-anchor: middle; }
+.diagram .gh.on .plant { fill: #6cc28a; }
+.diagram .gh .module { stroke: #1e3a8a; stroke-width: 4; stroke-linecap: round; }
+.diagram .gh-name { font: 700 14px var(--sans); fill: var(--ink); text-anchor: middle; }
+.diagram .gh-sub { font: 11.5px var(--sans); fill: var(--ink2); text-anchor: middle; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink2); margin: 10px 2px 0; }
 .legend .lg { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .lg.el { background: #e0a100; } .lg.heat { background: #dc2626; } .lg.co2 { background: #64748b; } .lg.lt { background: #f97316; }
@@ -267,4 +267,43 @@ table.grid td.yes { color: var(--good); }
 .callout.sys-note { background: var(--warn-soft); color: var(--warn); margin: 0 0 16px; }
 [hidden] { display: none !important; }   /* the layout classes above must not show what is hidden */
 .hint + .row, .hint + .seg { margin-top: 12px; }
-.param-row .pgroup.bare { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 24px; }
+.param-row .pgroup.bare { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 4px 28px; }
+
+/* the menu can be hidden */
+.icon-btn { border: 1px solid transparent; background: transparent; font-size: 18px; line-height: 1; padding: 5px 9px; border-radius: 8px; color: var(--ink2); }
+.icon-btn:hover { background: #eef1f4; border-color: var(--rule); }
+.brand { align-items: center; }
+body.nav-hidden .layout { grid-template-columns: minmax(0, 1fr); max-width: 1500px; }
+body.nav-hidden .steps { display: none; }
+
+/* explanations: a small i with a tooltip */
+.info { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #e4e8ed;
+  color: var(--ink2); font: italic 600 11px/1 Georgia, serif; cursor: help; position: relative; vertical-align: 1px;
+  margin-left: 4px; }
+.info:hover, .info:focus { background: var(--accent); color: #fff; outline: none; }
+.info::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  width: max-content; max-width: min(300px, 70vw); background: var(--ink); color: #fff; font: 400 12.5px/1.45 var(--sans);
+  font-style: normal; padding: 8px 10px; border-radius: 8px; display: none; pointer-events: none;
+  z-index: 30; text-align: left; white-space: normal; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+.info:hover::after, .info:focus::after { display: block; }
+h2 .info, h3 .info { vertical-align: 2px; }
+
+/* parameter rows: default shown, reset when changed */
+.prow { grid-template-columns: minmax(0, 1fr) 150px; }
+.prow.wide { grid-template-columns: minmax(0, 1fr) 210px; }
+.prow label > span { color: var(--ink); }
+.pin { display: flex; gap: 4px; align-items: center; }
+.pin input, .pin select { flex: 1 1 auto; min-width: 0; }
+.reset { padding: 3px 7px; font-size: 14px; line-height: 1; border-radius: 6px; color: var(--warn); border-color: #e3b04b; background: #fff8e6; }
+
+/* sizing: the custom size beside the switch */
+.row.center { align-items: center; }
+.inline-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink2); }
+.inline-field .num { width: 96px; }
+
+/* results */
+.res-tabs { margin: 4px 0 16px; flex-wrap: wrap; }
+.res-tabs button { padding: 7px 14px; }
+.res-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#resWhy { margin: 0 0 16px; background: var(--accent-soft); }
+.chart.short { height: 190px; margin-top: 8px; }

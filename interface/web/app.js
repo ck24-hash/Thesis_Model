@@ -194,16 +194,30 @@ function showStep(step) {
   if (step === "results" && S.results) Object.values(S.charts).forEach((c) => c.resize());
 }
 
+// the menu can be hidden; the choice is kept in this browser
+function setNav(hidden) {
+  document.body.classList.toggle("nav-hidden", hidden);
+  $("navToggle").setAttribute("aria-expanded", String(!hidden));
+  try { localStorage.setItem("navHidden", hidden ? "1" : "0"); } catch (e) { /* storage blocked: the choice lasts until reload */ }
+  Object.values(S.charts).forEach((c) => c.resize());
+}
+$("navToggle").addEventListener("click", () => setNav(!document.body.classList.contains("nav-hidden")));
+try { if (localStorage.getItem("navHidden") === "1") setNav(true); } catch (e) { /* no storage: the menu shows */ }
+
 // -- the System page: the greenhouse drawing -------------------------------------------------------------------------
 const RT = () => S.options.run_types[S.runType] || Object.values(S.options.run_types)[0];
 const CARRIER_COLOR = { electricity: "#e0a100", heat: "#dc2626", co2: "#64748b", "low-temperature heat": "#f97316" };
-const NODE = { w: 172, h: 58 };
-const GH = { x0: 330, x1: 670, peak: 214, eave: 258, base: 452, spans: 6 };
-// the centre of each block on the drawing (viewBox 1000 x 620): electricity on the left, heat on the right, fuels below
+const NODE = { w: 158, h: 50 };
+const GH = { x0: 410, x1: 590, peak: 178, eave: 206, base: 326, spans: 4 };
+// where each carrier enters the greenhouse: electricity on the left, heat on the right, CO2 top right; units below
+// the greenhouse enter from below
+const PORT = { electricity: [GH.x0, 292], heat: [GH.x1, 292], co2: [GH.x1, 238] };
+const PORT_BELOW = { electricity: [455, GH.base], co2: [500, GH.base], heat: [545, GH.base] };
+// the centre of each block on the drawing: electricity on the left, heat on the right, fuel units below
 const LAYOUT = {
-  existing_pv: [175, 95], voltiris: [500, 95], aux_heater: [700, 95], external_co2: [885, 95],
-  grid: [120, 300], battery: [120, 470], heat_pump: [885, 270], data_center: [885, 420],
-  ng_boiler: [340, 565], chp: [520, 565], sofc: [700, 565], thermal_storage: [885, 565],
+  existing_pv: [300, 54], voltiris: [500, 54], external_co2: [700, 54], data_center: [880, 54],
+  grid: [110, 232], battery: [110, 350], heat_pump: [880, 172], aux_heater: [880, 282], thermal_storage: [880, 392],
+  ng_boiler: [320, 424], chp: [500, 424], sofc: [680, 424],
 };
 const SHORT = { existing_pv: "Existing PV", voltiris: "Voltiris", aux_heater: "Backup heater", external_co2: "Liquid CO2",
   grid: "Grid", battery: "Battery", heat_pump: "Heat pump", data_center: "Data center", ng_boiler: "Gas boiler",
@@ -222,58 +236,59 @@ const ICONS = {
   external_co2: '<rect x="8" y="6" width="12" height="20" rx="5"/><path d="M12 6V2h4v4"/>',
   aux_heater: '<path d="M2 14h4l2-6 3 12 3-12 3 12 3-12 2 6h4"/>',
 };
-function nearestOnGreenhouse(cx, cy) {
-  return [Math.min(Math.max(cx, GH.x0), GH.x1), Math.min(Math.max(cy, GH.eave), GH.base)];
-}
 function greenhouseSvg() {
   const on = has("greenhouse"), w = (GH.x1 - GH.x0) / GH.spans;
-  let roof = `M${GH.x0} ${GH.eave}`;
+  let roof = `M${GH.x0} ${GH.eave}`, panes = "", modules = "", plants = "";
   for (let i = 0; i < GH.spans; i++) roof += ` L${GH.x0 + w * i + w / 2} ${GH.peak} L${GH.x0 + w * (i + 1)} ${GH.eave}`;
-  let panes = "", modules = "", plants = "";
-  for (let i = 0; i <= GH.spans * 2; i++) panes += `<path class="pane" d="M${GH.x0 + (w / 2) * i} ${GH.eave} V${GH.base}"/>`;
-  for (let i = 0; i < GH.spans; i++) {
-    const x = GH.x0 + w * i;   // Voltiris modules on the south slope of each span
-    if (has("voltiris")) modules += `<path class="module" d="M${x + 5} ${GH.eave - 6} L${x + w / 2 - 3} ${GH.peak + 8}"/>`;
-  }
-  for (let r = 0; r < 2; r++) for (let i = 0; i < 14; i++)
-    plants += `<ellipse class="plant" cx="${GH.x0 + 18 + i * 23.5}" cy="${GH.base - 14 - r * 22}" rx="8" ry="${6 + (i % 3)}"/>`;
+  for (let i = 1; i < GH.spans * 2; i++) panes += `<path class="pane" d="M${GH.x0 + (w / 2) * i} ${GH.eave} V${GH.base}"/>`;
+  for (let i = 0; i < GH.spans && has("voltiris"); i++)   // Voltiris modules on the south slope of each span
+    modules += `<path class="module" d="M${GH.x0 + w * i + 4} ${GH.eave - 5} L${GH.x0 + w * i + w / 2 - 3} ${GH.peak + 7}"/>`;
+  for (let i = 0; i < 9; i++) plants += `<ellipse class="plant" cx="${GH.x0 + 14 + i * 19}" cy="${GH.base - 11}" rx="7" ry="${5 + (i % 3)}"/>`;
   return `<g class="node gh ${on ? "on" : ""} built" data-block="greenhouse" tabindex="0" role="checkbox" aria-checked="${on}">
     <title>Greenhouse demand: the site's electricity load (heat and CO2 demand not built yet)</title>
     <path class="glass" d="${roof} L${GH.x1} ${GH.base} L${GH.x0} ${GH.base} Z"/>${panes}${plants}${modules}
-    <text x="500" y="320" class="gh-name">Greenhouse demand</text>
-    <text x="500" y="340" class="gh-sub">${on ? "electricity load · heat and CO2 not built" : "click to add"}</text></g>`;
+    <text x="500" y="256" class="gh-name">Greenhouse</text>
+    <text x="500" y="274" class="gh-sub">${on ? "electricity load" : "click to add"}</text></g>`;
 }
 function nodeSvg(b, cx, cy) {
   const x = cx - NODE.w / 2, y = cy - NODE.h / 2, on = has(b.id), built = b.status === "model";
   const preset = S.options.presets.find((p) => p.id === S.system.preset);
   const note = on && preset && preset.options && preset.options[b.id];
-  const sub = note || (on ? (built ? "in the system" : "chosen · not built yet") : built ? "click to add" : "not built yet");
+  const sub = note || (on ? (built ? "in the system" : "not built yet") : built ? "add" : "not built yet");
   return `<g class="node ${on ? "on" : ""} ${built ? "built" : "planned"}" data-block="${b.id}" tabindex="0" role="checkbox" aria-checked="${on}">
-    <title>${esc(b.name)}: ${esc(b.role)}${built ? "" : " (not built yet)"}</title>
-    <rect x="${x}" y="${y}" width="${NODE.w}" height="${NODE.h}" rx="12"/>
-    <g transform="translate(${x + 12} ${y + 15})" class="icon">${ICONS[b.id] || ""}</g>
-    <text x="${x + 50}" y="${y + 25}" class="name">${esc(SHORT[b.id] || b.name)}</text>
-    <text x="${x + 50}" y="${y + 43}" class="sub">${esc(sub)}</text>
-    ${on ? `<circle cx="${x + NODE.w - 13}" cy="${y + 13}" r="8" class="tick"/><path d="M${x + NODE.w - 17} ${y + 13} l3 3 l5 -6" class="tickmark"/>` : ""}</g>`;
+    <title>${esc(b.name)}: ${esc(b.role)}${built ? "" : " (not built yet)"}. Click to ${on ? "remove" : "add"}.</title>
+    <rect x="${x}" y="${y}" width="${NODE.w}" height="${NODE.h}" rx="10"/>
+    <g transform="translate(${x + 10} ${y + 12}) scale(.9)" class="icon">${ICONS[b.id] || ""}</g>
+    <text x="${x + 42}" y="${y + 21}" class="name">${esc(SHORT[b.id] || b.name)}</text>
+    <text x="${x + 42}" y="${y + 37}" class="sub">${esc(sub)}</text>
+    ${on ? `<circle cx="${x + NODE.w - 12}" cy="${y + 12}" r="7" class="tick"/><path d="M${x + NODE.w - 15.5} ${y + 12} l2.5 2.5 l4.5 -5" class="tickmark"/>` : ""}</g>`;
+}
+// a curve from a block to the greenhouse, arriving square to the side it enters
+function flowPath(cx, cy, carrier, below) {
+  const [px, py] = below ? PORT_BELOW[carrier] : PORT[carrier];
+  if (below) return `M${cx} ${cy} C${cx} ${cy - 40} ${px} ${py + 60} ${px} ${py}`;
+  const side = px <= GH.x0 ? -1 : 1;
+  return `M${cx} ${cy} C${cx + (px - cx) * 0.45} ${cy} ${px + side * 70} ${py} ${px} ${py}`;
 }
 function renderDiagram() {
   let lines = "", nodes = "";
   S.options.blocks.forEach((b) => {
     if (!LAYOUT[b.id]) return;
     const [cx, cy] = LAYOUT[b.id];
-    // data center heat reaches the greenhouse only through the heat pump (thesis.md 2.3)
-    const toHp = b.id === "data_center";
-    const [tx, ty] = toHp ? [LAYOUT.heat_pump[0], LAYOUT.heat_pump[1]] : b.id === "voltiris" ? [500, GH.peak + 14] : nearestOnGreenhouse(cx, cy);
-    const on = has(b.id) && has(toHp ? "heat_pump" : "greenhouse");
-    const carriers = (b.out || []).filter((c) => CARRIER_COLOR[c]);
-    const len = Math.hypot(tx - cx, ty - cy) || 1, nx = -(ty - cy) / len, ny = (tx - cx) / len;
-    carriers.forEach((c, i) => {
-      const o = (i - (carriers.length - 1) / 2) * 7;
-      lines += `<line class="flow ${on ? "on" : ""}" x1="${cx + nx * o}" y1="${cy + ny * o}" x2="${tx + nx * o}" y2="${ty + ny * o}" stroke="${CARRIER_COLOR[c]}"/>`;
-    });
     nodes += nodeSvg(b, cx, cy);
+    if (!has(b.id)) return;   // only the chosen blocks are connected
+    if (b.id === "data_center") {   // its heat reaches the greenhouse only through the heat pump (thesis.md 2.3)
+      if (has("heat_pump")) lines += `<path class="flow" d="M${cx} ${cy} L${LAYOUT.heat_pump[0]} ${LAYOUT.heat_pump[1]}" stroke="${CARRIER_COLOR["low-temperature heat"]}"/>`;
+      return;
+    }
+    if (!has("greenhouse")) return;
+    if (b.id === "voltiris") { lines += `<path class="flow" d="M${cx} ${cy} L${cx} ${GH.peak + 8}" stroke="${CARRIER_COLOR.electricity}"/>`; return; }
+    const below = cy > GH.base + 60;   // the fuel units under the greenhouse
+    (b.out || []).filter((c) => PORT[c]).forEach((c) => {
+      lines += `<path class="flow" d="${flowPath(cx, cy, c, below)}" stroke="${CARRIER_COLOR[c]}"/>`;
+    });
   });
-  $("diagram").innerHTML = `<svg viewBox="0 52 1000 568" aria-label="The greenhouse and its energy system: click a block to add or remove it">${lines}${greenhouseSvg()}${nodes}</svg>`;
+  $("diagram").innerHTML = `<svg viewBox="0 20 1000 438" aria-label="The greenhouse and its energy system: click a block to add or remove it">${lines}${greenhouseSvg()}${nodes}</svg>`;
 }
 function toggleBlock(id) {
   if (has(id)) S.system.blocks.delete(id); else S.system.blocks.add(id);
@@ -725,39 +740,39 @@ function marketChanged() { S.preview = null; updateTop(); loadParams(); }
 // -- parameters: on the Voltiris and Battery pages and the general pages ---------------------------------------------
 // the parameters you can change without writing JSON: page (its container kp-<page>), group, path, label, unit, kind
 const KEY_FIELDS = [
-  ["voltiris", "", "tech.module_wp", "Module power", "Wp per module", "num"],
-  ["battery", "", "tech.battery.c_rate", "C-rate", "kW per kWh bought", "num"],
-  ["battery", "", "tech.battery.soc_min", "Lowest state of charge", "% of the size", "pct"],
-  ["battery", "", "tech.battery.soc_max", "Highest state of charge", "% of the size", "pct"],
-  ["battery", "", "tech.battery.efficiency_store", "Charging efficiency", "%", "pct"],
-  ["battery", "", "tech.battery.efficiency_dispatch", "Discharging efficiency", "%", "pct"],
-  ["battery", "", "tech.battery.self_discharge_per_day", "Self-discharge", "% per day", "pct"],
-  ["reserve", "", "ancillary.reserve.mode", "How it is set", "", "select:percent|fixed_kwh"],
-  ["reserve", "", "ancillary.reserve.frac", "Share", "% of the window and the power", "pct"],
+  ["voltiris", "", "tech.module_wp", "Module power", "Wp per module", "num", "Peak power of one module. It sets the modules' price (price per Wp × Wp × modules) and the kWp shown; the output comes from the yield file."],
+  ["battery", "", "tech.battery.c_rate", "C-rate", "kW per kWh bought", "num", "Power per kWh bought: a 100 kWh battery charges and discharges at most 100 × C-rate kW."],
+  ["battery", "", "tech.battery.soc_min", "Lowest state of charge", "% of the size", "pct", "The battery is never emptied below this share of its size. The window between the lowest and highest state is what can be used."],
+  ["battery", "", "tech.battery.soc_max", "Highest state of charge", "% of the size", "pct", "The battery is never filled above this share of its size."],
+  ["battery", "", "tech.battery.efficiency_store", "Charging efficiency", "%", "pct", "Share of the energy sent to the battery that is stored. The round trip is charging × discharging efficiency."],
+  ["battery", "", "tech.battery.efficiency_dispatch", "Discharging efficiency", "%", "pct", "Share of the stored energy that comes back out."],
+  ["battery", "", "tech.battery.self_discharge_per_day", "Self-discharge", "% per day", "pct", "Share of the stored energy lost per day."],
+  ["reserve", "", "ancillary.reserve.mode", "How it is set", "", "select:percent|fixed_kwh", "percent: a share of the battery; fixed_kwh: a fixed number of kWh (capped at the usable window)."],
+  ["reserve", "", "ancillary.reserve.frac", "Share", "% of window and power", "pct", "Share of the usable window, and the same share of the power, kept out of the dispatch for grid services."],
   ["reserve", "", "ancillary.reserve.kwh", "Fixed size", "kWh (fixed_kwh)", "num"],
-  ["commercial", "Business model", "business_model.price_per_mwh", "EaaS price", "per MWh of Voltiris energy used on site", "num"],
-  ["commercial", "Investment prices", "capex.pv_per_wp", "Voltiris modules", "per Wp", "num"],
-  ["commercial", "Investment prices", "capex.battery_tiers_per_kwh", "Battery price tiers", "kWh:price per kWh, …", "tiers"],
-  ["commercial", "Investment prices", "capex.battery_replacement_frac", "Battery replacements", "% of the gross price", "pct"],
-  ["commercial", "Lifetimes", "finance.pv_life_yr", "PV life", "years; the battery study's horizon", "num"],
-  ["commercial", "Lifetimes", "finance.battery_life_yr", "Battery life", "years", "num"],
-  ["commercial", "Ancillary services", "ancillary.rate_per_kw_year", "Revenue rate", "per reserved kW and year", "num"],
-  ["subsidies", "Voltiris modules", "subsidies.pv.mode", "Mode", "", "select:percent|fixed|threshold"],
+  ["commercial", "Business model", "business_model.price_per_mwh", "EaaS price", "per MWh of Voltiris energy used on site", "num", "Under EaaS, what the grower pays Voltiris per MWh of Voltiris energy used on site."],
+  ["commercial", "Investment prices", "capex.pv_per_wp", "Voltiris modules", "per Wp", "num", "Price of the modules per Wp, before subsidy. Not paid by the grower under EaaS."],
+  ["commercial", "Investment prices", "capex.battery_tiers_per_kwh", "Battery price tiers", "kWh:price per kWh, …", "tiers", "Price per kWh by battery size, as size:price pairs; linear between them, flat beyond the first and last."],
+  ["commercial", "Investment prices", "capex.battery_replacement_frac", "Battery replacements", "% of the gross price", "pct", "Over the PV life the battery is bought again (PV life ÷ battery life − 1) times, at this share of its gross price, without subsidy."],
+  ["commercial", "Lifetimes", "finance.pv_life_yr", "PV life", "years", "num", "Years of the payback table over the project, and the horizon for battery replacements, with or without Voltiris."],
+  ["commercial", "Lifetimes", "finance.battery_life_yr", "Battery life", "years", "num", "A size counts as paying back if it does within this many years; lifetime profit = yearly value × battery life − investment."],
+  ["commercial", "Ancillary services", "ancillary.rate_per_kw_year", "Revenue rate", "per reserved kW and year", "num", "What the battery earns per kW kept for grid services, per year."],
+  ["subsidies", "Voltiris modules", "subsidies.pv.mode", "Mode", "", "select:percent|fixed|threshold", "percent: a share of the price is paid back; fixed: an amount off the price; threshold: the share applies up to a threshold size, the rest is paid in full."],
   ["subsidies", "Voltiris modules", "subsidies.pv.frac", "Share", "%", "pct"],
   ["subsidies", "Voltiris modules", "subsidies.pv.amount", "Amount", "fixed mode", "num"],
-  ["subsidies", "Battery", "subsidies.battery.mode", "Mode", "", "select:percent|fixed|threshold"],
+  ["subsidies", "Battery", "subsidies.battery.mode", "Mode", "", "select:percent|fixed|threshold", "percent: a share of the price is paid back; fixed: an amount off the price; threshold: the share applies up to a threshold size, the rest is paid in full."],
   ["subsidies", "Battery", "subsidies.battery.frac", "Share", "%", "pct"],
   ["subsidies", "Battery", "subsidies.battery.amount", "Amount", "fixed mode", "num"],
-  ["subsidies", "Battery", "subsidies.battery.threshold_mode", "Threshold size from", "", "select:ocan|manual"],
+  ["subsidies", "Battery", "subsidies.battery.threshold_mode", "Threshold size from", "", "select:ocan|manual", "ocan: CH rule, the threshold follows from the site's load (factor below); manual: the threshold size typed below."],
   ["subsidies", "Battery", "subsidies.battery.threshold_kwh", "Threshold size", "kWh (manual)", "num"],
-  ["subsidies", "Battery", "subsidies.battery.ocan_factor", "OCAN factor", "kWh per daily kWh of load", "num"],
-  ["ems", "Costs", "ems.fixed_per_year", "Fixed cost", "per year", "num"],
-  ["ems", "Costs", "ems.capex", "Hardware", "once, with the battery", "num"],
-  ["ems", "Fees", "ems.savings_fee_pct.voltiris", "On the bill saving, Voltiris", "%", "pct"],
+  ["subsidies", "Battery", "subsidies.battery.ocan_factor", "OCAN factor", "kWh per daily kWh of load", "num", "CH rule: the largest subsidised battery = yearly load ÷ 365 × this factor. With a threshold subsidy, the size list stops there."],
+  ["ems", "Costs", "ems.fixed_per_year", "Fixed cost", "per year", "num", "Yearly cost of the energy management system, taken off the battery's yearly value."],
+  ["ems", "Costs", "ems.capex", "Hardware", "once, with the battery", "num", "Bought once with the battery: added to its investment, not subsidised, not bought again at replacements."],
+  ["ems", "Fees", "ems.savings_fee_pct.voltiris", "On the bill saving, Voltiris", "%", "pct", "Share of the yearly bill saving (when positive) paid to Voltiris for running the battery."],
   ["ems", "Fees", "ems.savings_fee_pct.external", "On the bill saving, external", "%", "pct"],
-  ["ems", "Fees", "ems.ancillary_fee_pct.voltiris", "On the ancillary revenue, Voltiris", "%", "pct"],
+  ["ems", "Fees", "ems.ancillary_fee_pct.voltiris", "On the ancillary revenue, Voltiris", "%", "pct", "Share of the yearly ancillary revenue paid to Voltiris."],
   ["ems", "Fees", "ems.ancillary_fee_pct.external", "On the ancillary revenue, external", "%", "pct"],
-].map(([page, group, path, label, unit, kind]) => ({ page, group, path, label, unit, kind }));
+].map(([page, group, path, label, unit, kind, info]) => ({ page, group, path, label, unit, kind, info }));
 
 function shown(f, v) {
   if (v === undefined || v === null) return "";
@@ -792,15 +807,19 @@ function renderKeyParams() {
       fields.forEach((f) => {
         const def = getPath(d, f.path), changed = f.path in S.fieldValues;
         const r = el("div", { class: "prow" + (f.kind === "tiers" ? " wide" : "") + (changed ? " changed" : "") });
-        r.innerHTML = `<label>${esc(f.label)}<small>${esc(f.unit)}${f.unit ? " · " : ""}file: ${esc(shown(f, def))}</small></label>`;
+        r.innerHTML = `<label><span>${esc(f.label)}${f.info ? ` <span class="info" tabindex="0" data-tip="${esc(f.info)}">i</span>` : ""}</span>` +
+          `<small>${esc(f.unit)}${f.unit ? " · " : ""}default ${esc(shown(f, def))}</small></label>`;
         let input;
         if (f.kind.startsWith("select:")) {
-          input = el("select", {}, `<option value="">${esc(def)} (file)</option>` + f.kind.slice(7).split("|").filter((o) => o !== def)
+          input = el("select", {}, `<option value="">${esc(def)} (default)</option>` + f.kind.slice(7).split("|").filter((o) => o !== def)
             .map((o) => `<option ${S.fieldValues[f.path] === o ? "selected" : ""}>${o}</option>`).join(""));
         } else {
           input = el("input", { placeholder: shown(f, def), inputmode: "decimal" });
           input.value = changed ? shown(f, S.fieldValues[f.path]) : "";
         }
+        const reset = el("button", { class: "reset", type: "button", title: "Back to the default", "aria-label": "Back to the default" }, "&#8634;");
+        reset.hidden = !changed;
+        const update = () => { S.preview = null; loadParamsSoon(); };
         input.addEventListener("input", () => {
           const text = input.value.trim();
           const value = text === "" ? undefined : parsed(f, text);
@@ -808,10 +827,19 @@ function renderKeyParams() {
             (typeof value === "number" && Math.abs(value - def) < 1e-12) || (typeof value === "number" && !isFinite(value));
           if (same) delete S.fieldValues[f.path]; else S.fieldValues[f.path] = value;
           r.classList.toggle("changed", !same);
-          S.preview = null;
-          loadParamsSoon();
+          reset.hidden = same;
+          update();
         });
-        r.appendChild(input);
+        reset.addEventListener("click", () => {
+          delete S.fieldValues[f.path];
+          input.value = "";
+          r.classList.remove("changed");
+          reset.hidden = true;
+          update();
+        });
+        const box = el("div", { class: "pin" });
+        box.append(input, reset);
+        r.appendChild(box);
         g.appendChild(r);
       });
       box.appendChild(g);
@@ -1052,14 +1080,24 @@ function renderTable(id, data, opts = {}) {
   $(id).innerHTML = `<tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>` + rows.join("");
 }
 
+S.rtab = "overview";
+function showResultTab(name) {
+  S.rtab = name;
+  document.querySelectorAll("#resTabs button").forEach((b) => b.classList.toggle("active", b.dataset.rtab === name));
+  document.querySelectorAll("#step-results .rtab").forEach((t) => (t.hidden = t.dataset.rtab !== name));
+  Object.values(S.charts).forEach((c) => c.resize());
+}
+document.querySelectorAll("#resTabs button").forEach((b) => b.addEventListener("click", () => showResultTab(b.dataset.rtab)));
+
 function renderResults() {
   const R = S.results;
   document.querySelectorAll(".res-body").forEach((b) => (b.hidden = b.id !== "res-" + R.view));
-  $("resFilesCard").hidden = false;
+  $("resTabs").hidden = false;
   $("resFiles").textContent = `Written to ${R.files.folder} · model: ${S.options.run_types[R.run_type].name}`;
   $("resSummary").innerHTML = `<tr><th>Field</th><th>Value</th></tr>` + Object.entries(R.summary).filter(([k]) => k !== "sweep")
     .map(([k, v]) => `<tr><td><code>${k}</code></td><td>${esc(typeof v === "number" ? auto(v) : v === null ? "–" : String(v))}</td></tr>`).join("");
   if (R.view === "battery_study") renderBatteryStudy();
+  showResultTab(S.rtab);
 }
 
 function renderBatteryStudy() {
@@ -1072,8 +1110,6 @@ function renderBatteryStudy() {
     ["Investment", m(s.battery_investment), `battery after subsidy ${m(s.battery_net_capex)} + EMS ${m(s.ems_capex)}`],
     ["Payback", s.battery_payback_yr == null ? "never" : `${fmt(s.battery_payback_yr, 1)} yr`],
     ["Lifetime profit", m(s.battery_lifetime_profit), "value × battery life − investment"],
-    ["Ancillary revenue", R.choice.ancillary_on ? `${m(s.battery_ancillary_yr)}/yr` : "off"],
-    ["Cycles", `${fmt(s.battery_cycles, 0)} per year`],
     ["Self-sufficiency", `${fmt(s.ss_no_battery, 1)} → ${fmt(s.ss_battery, 1)} %`, `self-consumption ${fmt(s.sc_no_battery, 1)} → ${fmt(s.sc_battery, 1)} %`],
   ]);
   renderWhy();
@@ -1195,6 +1231,7 @@ function drawYear() {
       borderWidth: 1.4, pointRadius: 0, yAxisID: "y", order: 1 },
   ] }, options: { scales: { x: { ...x, stacked: true }, y: { stacked: false, title: { display: true, text: "kWh per day" } } } } });
   $("resYearWindow").textContent = fmt(S.results.choice.dispatch_kwh_per_kwh * S.results.summary.battery_kwh);
+  $("resCycles").textContent = `About ${fmt(S.results.summary.battery_cycles, 0)} full cycles a year.`;
 }
 
 function renderMonthly() {
@@ -1237,6 +1274,10 @@ $("openFolder").addEventListener("click", async () => {
   setMarket();
   $("zSweep").placeholder = RT().sizing_defaults.sweep_kwh.join(", ");
   objectiveChanged();
+  try {   // after a refresh, the last finished run's results come back
+    const last = await api("/api/results");
+    if (!last.error) { S.results = last; renderResults(); }
+  } catch (e) { /* no finished run yet */ }
   const first = S.options.cases.find((c) => c.name.startsWith("blocks/")) || S.options.cases[0];
   if (first) {
     $("caseSelect").value = first.path;
