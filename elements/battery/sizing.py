@@ -44,10 +44,10 @@ def evaluate_size(s: System, size_kwh: float, regime: str, baseline_op_cost: flo
     demand = s.grid.tariff.yearly_capacity_charge(imp, regime)
     net = s.bm.pv_net_revenue(exp).sum() - (imp * s.import_price(regime) * dt).sum() - demand
     bill_saving = net + baseline_op_cost
-    ancillary = s.battery.ancillary_revenue(size_kwh)
-    ems = s.battery.ems.fees(ancillary, bill_saving)
+    ancillary = s.ancillary_revenue(size_kwh)
+    ems = s.ems.fees(ancillary, bill_saving)
     value = bill_saving + ancillary - ems["total"]
-    investment = s.battery.investment(size_kwh)
+    investment = s.battery_investment(size_kwh)
     pb = payback_years(investment, value)
     ss = (1 - imp.sum() / load.sum()) * 100
     pv_ts = dispatch.pv_output(n, s)
@@ -64,7 +64,7 @@ def evaluate_size(s: System, size_kwh: float, regime: str, baseline_op_cost: flo
     log(f" val={value:,.0f}/yr  pb={pb:.1f} yr  SS={ss:.1f}%  SC={sc:.1f}%  DUP={dup:,.0f} h "
         f"(regime {regime}{', DUP held' if dup_lock else ''})")
     return dict(size=size_kwh, bat_value=value, investment=investment, payback=pb, ss=ss, sc=sc,
-                lifetime_profit=lifetime_profit(value, s.battery.life_yr, investment),
+                lifetime_profit=lifetime_profit(value, s.commercial.battery_life_yr, investment),
                 ems_fees=ems["voltiris"] + ems["external"],
                 dup=dup, regime=regime, dup_lock=dup_lock or "")
 
@@ -108,11 +108,11 @@ def sweep(s: System, base_regime: str, baseline_op_cost: float, settings: dict |
     """Two stages: the coarse sizes, then the fine grid around the best coarse size. One row per size. With
     `dispatches`, every solved size's dispatch table is kept there (see evaluate_size)."""
     cfg = {**DEFAULTS, **(settings or {})}
-    life = s.battery.life_yr
+    life = s.commercial.battery_life_yr
     coarse = sorted(set(cfg["sweep_kwh"]) | ({cfg["custom_kwh"]} if cfg["objective"] == "custom" else set()))
     cap = None
-    if cfg["cap_at_subsidy_size"] and s.battery.cap_sweep_at_subsidy:
-        cap = round(s.battery.subsidy_threshold_kwh)
+    if cfg["cap_at_subsidy_size"] and s.subsidies.cap_sweep_at_subsidy:
+        cap = round(s.subsidies.battery_threshold_kwh)
         coarse = sorted({size for size in coarse if size <= cap} | {cap})
     log(f"Stage 1  coarse: {coarse} kWh")
     rows = [r for r in (evaluate_size_any_regime(s, size, base_regime, baseline_op_cost, log=log,

@@ -1,8 +1,0 @@
-{
-  "_about": "Investment prices, the same real price in every country (converted with params/fx.json), excl. VAT. A country file params/capex/<country>.json may override them. [voltiris part of the reference file params/capex/default.json]",
-  "pv_per_wp": {
-    "amount": 1.8,
-    "currency": "CHF"
-  },
-  "pv_note": "price per Wp of Voltiris modules: 1.80 CHF/Wp, 1.962 EUR/Wp"
-}

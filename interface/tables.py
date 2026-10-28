@@ -38,13 +38,16 @@ def rounded(series: pd.Series, digits: int = 3) -> list:
 
 
 _tables: dict = {}
+KEEP = 12   # workbooks kept in memory (one per block, a few cases)
 
 
 def read_table(path: str) -> pd.DataFrame:
-    """The workbook's first sheet, kept in memory until the file changes."""
+    """A workbook's first sheet, kept in memory until the file changes."""
     p = Path(path)
-    key = (str(p.resolve()), p.stat().st_mtime)
-    if key not in _tables:
-        _tables.clear()
-        _tables[key] = pd.read_excel(p)
-    return _tables[key].copy()
+    name, mtime = str(p.resolve()), p.stat().st_mtime
+    if _tables.get(name, (None,))[0] != mtime:
+        _tables.pop(name, None)
+        while len(_tables) >= KEEP:
+            _tables.pop(next(iter(_tables)))
+        _tables[name] = (mtime, pd.read_excel(p))
+    return _tables[name][1].copy()

@@ -58,7 +58,7 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         sizing_settings: dict | None = None, tag: str = "case", log=print) -> dict:
     if s.battery is None:
         raise ValueError("The battery study needs a battery block in the system.")
-    dt, t, b = s.dt, s.grid.tariff, s.battery
+    dt, t, c = s.dt, s.grid.tariff, s.commercial
     cfg = {**sizing.DEFAULTS, **(sizing_settings or {})}
 
     # 1. regime and subsidised maximum
@@ -67,8 +67,8 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         log(f"  Auto DUP = {dup_no_battery:,.0f} h  ->  regime {base}")
     else:
         log(f"  Regime {base}")
-    if b.cap_sweep_at_subsidy:
-        log(f"  Subsidy max size : {b.subsidy_threshold_kwh:,.0f} kWh")
+    if s.subsidies.cap_sweep_at_subsidy:
+        log(f"  Subsidy max size : {s.subsidies.battery_threshold_kwh:,.0f} kWh")
 
     # 2. no battery
     log("  Solving the year without battery ...")
@@ -89,7 +89,7 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     log("\n=== BATTERY SIZING SWEEP ===")
     solved: dict = {}   # every size's dispatch from the sweep, so the chosen size is not solved again
     table = sizing.sweep(s, base, baseline_op_cost, cfg, log=log, dispatches=solved)
-    size = sizing.choose(table, cfg["objective"], cfg["custom_kwh"], b.life_yr)
+    size = sizing.choose(table, cfg["objective"], cfg["custom_kwh"], c.battery_life_yr)
     regime = table.loc[size, "regime"]
     dup_lock = table.loc[size, "dup_lock"] or None
     log(f"\n  Chosen: {size} kWh, regime {regime}" + ("  (DUP held by constraint)" if dup_lock else ""))
@@ -108,8 +108,8 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     sc_b = flows.sc_ss(res_b, s)
     monthly_b = flows.monthly_breakdown(res_b, sc_b, s, regime)
 
-    gross = b.gross(size)
-    net_capex = b.net_capex(size)
+    gross = c.battery_gross(size)
+    net_capex = s.battery_net_capex(size)
     baseline_annual_net = (s.bm.pv_net_revenue(res_nb["grid_export"])
                            - res_nb["grid_import"] * s.import_price(base) * dt).sum()
     annual_net_bat = (s.bm.pv_net_revenue(res_b["grid_export"]).sum()
@@ -120,16 +120,17 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     sc_saving, arb_saving = flows.value_split(res_b, s, regime, energy_savings)
     peak_demand = e_nb["demand_annual"] - e_b["demand_annual"]
     peak_shaving = peak_demand + regime_switch
-    ancillary = b.ancillary_revenue(size)
-    ems = b.ems.fees(ancillary, energy_savings + peak_shaving)
+    ancillary = s.ancillary_revenue(size)
+    ems = s.ems.fees(ancillary, energy_savings + peak_shaving)
     net_savings = energy_savings + peak_shaving + ancillary - ems["total"]
-    investment = net_capex + b.ems.capex
+    investment = net_capex + s.ems.capex
     payback = payback_years(investment, net_savings)
     cycles = (res_b["battery_power"].clip(lower=0).abs() * dt).sum() / size
 
     # 5. Voltiris saving, cost over the PV life, payback table
-    life_pv, life_bat = s.pv_life_yr, b.life_yr
-    pv_capex = 0.0 if s.bm.eaas or s.voltiris is None else s.voltiris.gross_capex()
+    life_pv, life_bat = s.pv_life_yr, c.battery_life_yr
+    module_wp = s.voltiris.module_wp if s.voltiris else 0.0
+    pv_capex = 0.0 if s.bm.eaas else c.pv_capex(s.modules, module_wp)
     existing = s.existing if s.existing is not None else pd.Series(0.0, index=s.index)
     imp_exist = (s.load - existing).clip(lower=0)
     exp_exist = (existing - s.load).clip(lower=0)
@@ -138,17 +139,17 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     bill_exist = flows.bill(imp_exist, exp_exist, s, regime_exist, volt=False)["total"]
     pv_saving = bill_exist - e_nb["total_cost"] if s.modules > 0 else 0.0
     bat_saving = e_nb["total_cost"] - e_b["total_cost"] + ancillary - ems["total"]
-    pv_capex_net = s.voltiris.net_capex(pv_capex) if s.voltiris else 0.0
-    repl = b.replacement_cost(size, life_pv)
-    bat_no_sub = gross + repl + b.ems.capex
-    bat_sub = net_capex + repl + b.ems.capex
+    pv_capex_net = s.subsidies.pv_net(pv_capex, s.modules, module_wp, c.capex["pv_per_wp"])
+    repl = c.battery_replacement_cost(size, life_pv)
+    bat_no_sub = gross + repl + s.ems.capex
+    bat_sub = net_capex + repl + s.ems.capex
     cur = t.currency
     payback_table = payback_rows(
         eaas=s.bm.eaas, pv_modules=s.modules, eaas_price_per_mwh=s.bm.price_per_mwh,
         pv_capex=pv_capex, pv_capex_net=pv_capex_net, battery_capex_no_sub=bat_no_sub, battery_capex_sub=bat_sub,
         pv_saving=pv_saving, battery_saving=bat_saving,
-        pv_label=s.voltiris.subsidy_label(cur) if s.voltiris else "",
-        battery_label=b.subsidy_label(cur),
+        pv_label=s.subsidies.pv_label(s.modules, cur),
+        battery_label=s.subsidies.battery_label(cur),
         pv_life_yr=life_pv, currency=cur)
 
     volt_mwh = (s.volt_pv * dt).sum() / 1000
@@ -161,7 +162,7 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         "currency": cur, "country": t.p.get("country"), "region": t.p.get("region"), "utility": t.p.get("utility"),
         "eaas_price_per_mwh": s.bm.price_per_mwh if s.bm.eaas else None,
         "regime_no_battery": base, "regime_battery": regime,
-        "battery_kwh": size, "battery_net_capex": net_capex, "ems_capex": b.ems.capex,
+        "battery_kwh": size, "battery_net_capex": net_capex, "ems_capex": s.ems.capex,
         "battery_investment": investment, "battery_capex_pv_life": bat_sub,
         "battery_value_yr": net_savings, "battery_energy_savings_yr": energy_savings,
         "battery_sc_saving_yr": sc_saving, "battery_arbitrage_yr": arb_saving,

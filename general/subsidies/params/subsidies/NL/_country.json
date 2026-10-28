@@ -1,0 +1,5 @@
+{
+  "_about": "Subsidies in the Netherlands, as in the NL notebook: none on the battery or the PV. Modes as in CH: percent, fixed, threshold.",
+  "battery": {"mode": "percent", "frac": 0.0, "amount": 0, "threshold_mode": "manual", "threshold_kwh": 1000},
+  "pv": {"mode": "percent", "frac": 0.0, "amount": 0, "threshold_modules": null}
+}

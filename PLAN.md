@@ -5,12 +5,15 @@ code gets there.
 
 ## 1. Where we are
 
-- `elements/`: the blocks greenhouse (electricity load), Voltiris, existing PV, grid and battery.
+- `elements/`: the blocks greenhouse (electricity load), Voltiris, existing PV, grid and battery, their technical side.
+  Each reads its own input file (`examples/blocks/README.md` lists what each needs, with an example).
+- `general/`: what is not a physical block: commercial (business model, prices, lifetimes, ancillary rate),
+  subsidies, EMS (`general/README.md`). The market is chosen once for the run.
 - `system/`: the engine that builds one network from the chosen blocks and runs the battery study.
 - `elements/battery_reference`: Jesse's PV + battery model, frozen. The blocks give the same results to the last digit
   (section 5).
-- `interface/`: one page for every run. The system chosen picks the model; for the electricity blocks both the blocks
-  and the reference can run it, and the page lets you choose.
+- `interface/`: a System page to choose the blocks, then one page per chosen block, then Run and Results. For the
+  electricity blocks both the blocks and the reference can run the system, and the page lets you choose.
 - `common/`: time step conversion to 15 min, parameter loading and money, the list of blocks, the scenario presets.
 
 ## 2. Layout
@@ -90,16 +93,21 @@ for later (decided 28 Oct 2026).
 | In elements/battery_reference | Now in |
 |---|---|
 | load column | `greenhouse` |
-| module yield x module count, must run, module Wp, PV price, PV subsidy, PV life, business model | `voltiris` |
+| module yield x module count, must run, module Wp | `voltiris` |
+| business model, PV price, PV life, battery price tiers and replacements, battery life, ancillary rate | `general/commercial` |
+| PV and battery subsidies | `general/subsidies` |
+| EMS costs and fees | `general/ems` |
 | existing PV column | `existing_pv` |
 | tariffs, capacity charges, A/B regimes and DUP, export value, grid limits, markets | `grid` |
-| battery technology, price, subsidy, replacements, EMS, ancillary reserve and revenue, size sweep, payback study | `battery` |
+| battery technology, ancillary reserve, size sweep, payback study | `battery` |
 | one-meter rule, PV-only battery export, EaaS import and export bounds | `system/dispatch.py` |
 | parameter loading, money in the market's currency, exchange rate | `common/parameters.py`, `common/fx.json` |
 
 Check (`python system/compare.py`): the summary and every result table equal to the last digit on the CH, NL and FR
-examples, and on variants (EaaS, existing PV, 0 modules, a custom size with a fine grid, overrides with ancillary off,
-a manual FR regime with `battery_export: any`, FR under EaaS); results in `system/README.md`.
+examples (one workbook, and one file per block with an hourly existing PV file), and on variants (EaaS, existing PV,
+0 modules, a custom size with a fine grid, overrides with ancillary off, a manual FR regime with
+`battery_export: any`, FR under EaaS); results in `system/README.md`. Voltiris and existing PV are separate blocks
+with separate files, added to the network as one PV generator, as in the reference.
 
 Known problem for later steps: the one-meter rule and the PV-only export use the net load (load - PV) as a fixed
 number per step. That holds while load and PV are fixed. Once a heat pump or a data center adds a variable electricity

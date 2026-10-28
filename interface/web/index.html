@@ -17,122 +17,209 @@
 </header>
 
 <div class="layout">
-<nav class="steps" id="steps">
-  <button data-step="system" class="active"><b>1</b><span>System<small>scenario and blocks</small></span></button>
-  <button data-step="inputs"><b>2</b><span>Input data<small>workbook, time step, columns</small></span></button>
-  <button data-step="market"><b>3</b><span>Market<small>country, tariff, currency</small></span></button>
-  <button data-step="params"><b>4</b><span>Parameters<small>block by block</small></span></button>
-  <button data-step="run"><b>5</b><span>Run<small>case file, progress, log</small></span></button>
-  <button data-step="results"><b>6</b><span>Results<small>value, sweep, bills, dispatch</small></span></button>
-</nav>
+<nav class="steps" id="steps"></nav>
 
 <main>
-<!-- 1 SYSTEM ------------------------------------------------------------------------------------------------------ -->
+<!-- SYSTEM ------------------------------------------------------------------------------------------------------ -->
 <section id="step-system" class="step active">
-  <h1>1 &middot; System</h1>
-  <p class="lead">Pick a scenario to tick its blocks, or tick the blocks yourself. The blocks you choose decide which columns, parameters and model the next steps use. A case file fills every step at once.</p>
+  <h1>System</h1>
+  <p class="lead">Click the parts of the greenhouse to add or remove them, or start from a scenario. Each chosen block gets its own page in the menu; the general items (market, commercial, subsidies, EMS) follow.</p>
 
   <div class="card">
-    <h2>Start from</h2>
     <div class="row">
-      <label class="field grow">Existing case file
+      <label class="field grow">Case file
         <select id="caseSelect"></select>
       </label>
       <button id="caseLoad" class="primary">Load</button>
-      <span class="or">or</span>
-      <label class="button">Open a case file&hellip;<input type="file" id="caseFile" accept=".json" hidden></label>
-      <span class="or">or</span>
+      <label class="button">Open&hellip;<input type="file" id="caseFile" accept=".json" hidden></label>
       <button id="caseNew">Start empty</button>
     </div>
-    <p class="hint" id="caseInfo">Loading a case fills every step with its settings. You can change anything afterwards.</p>
-  </div>
-
-  <div class="card">
-    <h2>Scenario</h2>
     <div class="row">
-      <label class="field grow">Preset
+      <label class="field grow">Scenario preset
         <select id="presetSelect"></select>
       </label>
-      <button id="presetApply" class="primary">Use this preset</button>
+      <button id="presetApply">Use this preset</button>
+      <label class="field small">Data year <input id="dataYear" type="number" value="2026"></label>
     </div>
-    <p class="hint" id="presetInfo">A preset only ticks blocks (thesis.md, section 2.1). Change any of them below; the system then becomes your own.</p>
+    <p class="hint" id="caseInfo">Loading a case fills every page with its settings. A preset only ticks blocks (thesis.md, section 2.1).</p>
   </div>
 
-  <div class="card">
-    <h2>Blocks</h2>
-    <div class="block-grid" id="blockGrid"></div>
+  <div class="card system-card">
+    <div class="system-head">
+      <h2>The greenhouse and its energy system</h2>
+      <span class="muted" id="presetInfo"></span>
+    </div>
+    <div class="diagram" id="diagram"></div>
+    <div class="legend">
+      <span><i class="lg el"></i>electricity</span><span><i class="lg heat"></i>heat</span><span><i class="lg co2"></i>CO2</span>
+      <span><i class="lg lt"></i>low-temperature heat</span><span><i class="lg planned"></i>not built yet</span>
+    </div>
     <div class="callout" id="systemCheck"></div>
     <div class="row run-type" id="runTypeRow" hidden>
       <label class="field grow">Model that runs it <select id="runTypeSelect"></select></label>
     </div>
   </div>
-  <div class="nav-buttons"><span></span><button class="primary" data-goto="inputs">Next: input data &rarr;</button></div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 
-<!-- 2 INPUT DATA ------------------------------------------------------------------------------------------------- -->
+<!-- GREENHOUSE -------------------------------------------------------------------------------------------------- -->
+<section id="step-greenhouse" class="step">
+  <h1>Greenhouse demand</h1>
+  <p class="lead">The site's electricity load. Its time steps are the run's. Heat and CO2 demand are not built yet.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="data-card" data-block="greenhouse"></div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- VOLTIRIS ---------------------------------------------------------------------------------------------------- -->
+<section id="step-voltiris" class="step">
+  <h1>Voltiris</h1>
+  <p class="lead">The modules' output is the yield of one module times the module count. It must run, and is added to the network together with the existing PV, behind the site's one meter, as in the reference model. Its price, subsidy and business model are on the general pages.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="card">
+    <h2>Modules</h2>
+    <div class="row">
+      <label class="field">Voltiris modules <input id="sModules" type="number" min="0" step="1" value="0"></label>
+      <div id="kp-voltiris" class="inline-params"></div>
+    </div>
+  </div>
+  <div class="data-card" data-block="voltiris"></div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- EXISTING PV ------------------------------------------------------------------------------------------------- -->
+<section id="step-existing_pv" class="step">
+  <h1>Existing PV</h1>
+  <p class="lead">The measured output of the PV already on site. It must run, is not sized, and is added to the network together with Voltiris, as in the reference model.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="data-card" data-block="existing_pv"></div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- GRID -------------------------------------------------------------------------------------------------------- -->
+<section id="step-grid" class="step">
+  <h1>Grid</h1>
+  <p class="lead">The connection and the regime. The tariff comes from the market (general page Market); its day-ahead price, where the tariff uses one (NL, FR), is this block's input file.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="two-col">
+    <div class="card">
+      <h2>Connection</h2>
+      <div class="row">
+        <label class="field">Import limit, kW <input id="sImport" type="number" min="0" placeholder="automatic"></label>
+        <label class="field">Export limit, kW <input id="sExport" type="number" min="0" placeholder="automatic"></label>
+      </div>
+      <p class="hint">Automatic: import 2 &times; the year's highest load, export 1.1 &times; the year's highest PV.</p>
+    </div>
+    <div class="card">
+      <h2>Regime</h2>
+      <div class="row">
+        <label class="check"><input type="radio" name="regimeMode" value="auto" checked> Automatic</label>
+        <label class="check"><input type="radio" name="regimeMode" value="manual"> Fixed:</label>
+        <select id="sRegime"></select>
+      </div>
+      <p class="hint">CH: A or B from the hours of use (DUP) without battery, re-checked for each battery size. FR: the TURPE option (LU or CU). NL: one regime.</p>
+    </div>
+  </div>
+  <div class="data-card" data-block="grid"></div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- BATTERY ----------------------------------------------------------------------------------------------------- -->
+<section id="step-battery" class="step">
+  <h1>Battery</h1>
+  <p class="lead">Its technology, the part kept for grid services, and how its size is chosen. Its price, subsidy and EMS are on the general pages.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="two-col">
+    <div class="card">
+      <h2>Technology <span class="muted">grey = file value; type to change it for this run</span></h2>
+      <div id="kp-battery" class="param-groups single"></div>
+    </div>
+    <div class="card">
+      <h2>What 100 kWh bought gives the optimiser</h2>
+      <div class="battery-bars" id="pvBattery"></div>
+      <div class="tiles" id="pvBatteryTiles"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Grid services reserve</h2>
+      <label class="switch"><input type="checkbox" id="sAncillary" checked><span></span> On</label>
+    </div>
+    <p class="hint">A share of the battery is kept out of the dispatch for grid services and paid per reserved kW and year (the rate is on the Commercial page). Off sets the reserve and its rate to 0 for this run.</p>
+    <div id="kp-reserve" class="param-row"></div>
+  </div>
+  <div class="card">
+    <h2>Sizing</h2>
+    <div class="row">
+      <div class="seg" id="objSeg">
+        <label><input type="radio" name="objective" value="profit" checked><span>Lifetime profit</span></label>
+        <label><input type="radio" name="objective" value="payback"><span>Payback</span></label>
+        <label><input type="radio" name="objective" value="custom"><span>Custom size</span></label>
+      </div>
+      <label class="field small" id="customRow">Custom size, kWh <input id="zCustom" type="number" min="1" value="422"></label>
+    </div>
+    <p class="hint" id="objHint"></p>
+    <div class="row">
+      <label class="field grow">Sizes to test, kWh <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
+      <button id="zDefault">Default list</button>
+    </div>
+    <div class="row compact">
+      <span class="muted">or from</span><input id="gFrom" type="number" min="1" value="100" class="num">
+      <span class="muted">to</span><input id="gTo" type="number" min="1" value="1500" class="num">
+      <span class="muted">every</span><input id="gStep" type="number" min="1" value="100" class="num"><span class="muted">kWh, for</span>
+      <select id="gTarget"><option value="zSweep">the sizes to test</option><option value="zFine">the fine grid</option></select>
+      <button id="gReplace">Replace</button><button id="gAdd">Add</button>
+      <span class="hint" id="gInfo"></span>
+    </div>
+    <details>
+      <summary>Fine grid, subsidy cap, and how the size is chosen</summary>
+      <div class="row">
+        <label class="field grow">Fine grid: extra sizes, kWh, tried only near the best size <input id="zFine" placeholder="none, e.g. 350, 375, 400, 425"></label>
+        <label class="field small">Near = within, kWh <input id="zWindow" type="number" min="0" value="250"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="zCap" checked> Stop the list at the subsidised maximum size (with a threshold subsidy, CH's OCAN rule)</label>
+      <ol class="explain">
+        <li><b>Baseline.</b> The year without battery is optimised once; every size is compared with its bill.</li>
+        <li><b>Each size.</b> The whole year is optimised with that battery, knowing the year in advance: bill saving, yearly value (bill saving + ancillary revenue &minus; EMS costs), investment (battery after subsidy + EMS hardware), payback, lifetime profit.</li>
+        <li><b>Swiss regime check.</b> A size whose hours of use (DUP) land in the other regime is solved twice more; the better is kept.</li>
+        <li><b>Choice.</b> The objective picks one size among those tested; the fine grid then refines around it.</li>
+      </ol>
+    </details>
+    <div class="callout" id="zPlan">The setup check shows the exact list the model will solve.</div>
+  </div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- A BLOCK NOT BUILT YET --------------------------------------------------------------------------------------- -->
+<section id="step-planned" class="step">
+  <h1 id="plannedTitle"></h1>
+  <div class="card">
+    <p id="plannedText"></p>
+    <p class="hint">This block is not built yet: it has no input file or parameters, and a system that holds it cannot run. PLAN.md gives the order in which the blocks are built.</p>
+  </div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- INPUT DATA -------------------------------------------------------------------------------------------------- -->
 <section id="step-inputs" class="step">
-  <h1>2 &middot; Input data</h1>
-  <p class="lead">One workbook with the site's curves for one year. The model runs in 15-minute steps: a workbook with a coarser step (hourly, 30 min) is converted when it is read.</p>
-  <div class="callout sys-note" hidden></div>
-
+  <h1>Input data</h1>
+  <p class="lead">Every chosen block's input curve in one place, on the run's 15-minute steps (shown as hourly means; daily means over the year). Voltiris is shown for the module count of its page; prices use the right axis.</p>
   <div class="card">
-    <h2>Workbook</h2>
-    <div class="row">
-      <label class="field grow">Workbook found in examples/ or uploaded
-        <select id="wbSelect"></select>
-      </label>
-      <span class="or">or</span>
-      <label class="button">Upload a workbook&hellip;<input type="file" id="wbUpload" accept=".xlsx,.xls" hidden></label>
-    </div>
-    <div class="row">
-      <label class="field grow">Full path of the workbook
-        <input id="wbPath" placeholder="C:\...\site 2026.xlsx">
-      </label>
-      <label class="field small">Data year
-        <input id="dataYear" type="number" value="2026">
-      </label>
-      <button id="wbRead" class="primary">Read workbook</button>
-    </div>
-    <p class="hint">The first sheet is read. The time stamps are built from Month, Day, Hour (and Minute, 0 when missing) and the data year; a time stamp marks the start of its step.</p>
+    <h2>Files</h2>
+    <div class="table-wrap"><table class="grid" id="filesTable"></table></div>
   </div>
-
-  <div class="card" id="wbStepCard" hidden>
-    <h2>Time step</h2>
-    <div class="tiles" id="wbStepTiles"></div>
-    <p class="hint" id="wbStepNote"></p>
+  <div class="card">
+    <h2>Curves</h2>
+    <div class="viewer" id="viewer-all"></div>
   </div>
-
-  <div class="card" id="wbColumnsCard" hidden>
-    <h2>Columns</h2>
-    <p class="hint">What the model reads from each column, for the blocks chosen in step 1. If your workbook uses other names, pick the right column; the mapping is saved in the case file under <code>columns</code>. The unit sets how a coarser step is converted: kW, W and prices are repeated in each quarter hour, kWh per step is divided.</p>
-    <div class="table-wrap"><table class="grid" id="wbRoles"></table></div>
-  </div>
-
-  <div class="card" id="wbContentCard" hidden>
-    <h2>What is in it</h2>
-    <div class="tiles" id="wbTiles"></div>
-    <div class="two">
-      <div><h3>Monthly energy</h3><div class="chart"><canvas id="wbMonthly"></canvas></div></div>
-      <div><h3>PV yield of one module per month</h3><div class="chart"><canvas id="wbMonthlyPv"></canvas></div></div>
-    </div>
-    <h3>One week, hourly</h3>
-    <div class="row slim">
-      <label class="field grow">Week <input type="range" id="wbWeek" min="0" max="51" value="25"></label>
-      <span id="wbWeekLabel" class="muted"></span>
-    </div>
-    <div class="chart tall"><canvas id="wbWeekChart"></canvas></div>
-    <p class="hint">PV is shown for the number of Voltiris modules set in step 4 (<span id="wbModulesNote">0</span> modules) plus the existing PV.</p>
-  </div>
-  <div class="nav-buttons"><button data-goto="system">&larr; Back</button><button class="primary" data-goto="market">Next: market &rarr;</button></div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 
-<!-- 3 MARKET ----------------------------------------------------------------------------------------------------- -->
+<!-- GENERAL: MARKET --------------------------------------------------------------------------------------------- -->
 <section id="step-market" class="step">
-  <h1>3 &middot; Market</h1>
-  <p class="lead">The market picks the parameter files: tariff, subsidies, ancillary services, prices. Values you change in step 4 are written to the case file as <code>overrides</code>, for this run only; the files are not changed.</p>
-  <div class="callout sys-note" hidden></div>
+  <h1>Market</h1>
+  <p class="lead">Where the site is: the country, region and utility select the grid tariff, and the country and region select the subsidies and the ancillary rate. The market's currency is the run's.</p>
   <div class="card">
-    <h2>Market</h2>
     <div class="row">
       <label class="field">Country <select id="mCountry"></select></label>
       <label class="field">Region / canton / voltage <select id="mRegion"></select></label>
@@ -140,151 +227,79 @@
     </div>
     <p class="hint" id="mCurrency"></p>
   </div>
-  <div class="nav-buttons"><button data-goto="inputs">&larr; Back</button><button class="primary" data-goto="params">Next: parameters &rarr;</button></div>
+  <div class="card pv-part" hidden><h2>Tariff <span class="muted">from the setup check</span></h2><div class="tiles" id="pvTariff"></div><div class="table-wrap"><table class="grid" id="pvPrices"></table></div></div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 
-<!-- 4 PARAMETERS ------------------------------------------------------------------------------------------------- -->
-<section id="step-params" class="step">
-  <h1>4 &middot; Parameters</h1>
-  <p class="lead">One card per block chosen in step 1. Grey numbers are the values from the parameter files; type a value to change it for this run (changed fields are highlighted, clear a field to go back to the file value).</p>
-  <div class="callout sys-note" hidden></div>
-
-  <div class="card block-card" data-block="greenhouse">
-    <h2>Greenhouse demand</h2>
-    <p class="hint">The electricity load is the workbook's load column (step 2). Heat and CO2 demand are not built yet.</p>
-  </div>
-
-  <div class="card block-card" data-block="existing_pv">
-    <h2>Existing PV</h2>
-    <p class="hint">The output of the PV already on site is the workbook's existing PV column (step 2). It serves the same load as Voltiris and is not sized.</p>
-  </div>
-
-  <div class="card block-card" data-block="voltiris">
-    <h2>Voltiris</h2>
-    <div class="row">
-      <label class="field">Voltiris modules <input id="sModules" type="number" min="0" step="1" value="0"></label>
-      <label class="field">Business model <select id="mBusiness"></select></label>
-    </div>
-    <div id="kp-voltiris" class="param-groups"></div>
-  </div>
-
-  <div class="card block-card" data-block="grid">
-    <h2>Grid</h2>
-    <div class="row">
-      <label class="field">Import limit, kW <input id="sImport" type="number" min="0" placeholder="automatic"></label>
-      <label class="field">Export limit, kW <input id="sExport" type="number" min="0" placeholder="automatic"></label>
-    </div>
-    <p class="hint">Automatic limits: import 2 &times; the year's highest load, export 1.1 &times; the year's highest PV.</p>
-    <h3>Regime</h3>
-    <div class="row">
-      <label class="check"><input type="radio" name="regimeMode" value="auto" checked> Automatic</label>
-      <label class="check"><input type="radio" name="regimeMode" value="manual"> Fixed:</label>
-      <select id="sRegime"></select>
-    </div>
-    <p class="hint">CH: automatic picks A or B from the hours of use (DUP) without battery, and re-checks each size whose DUP crosses the threshold. FR: the TURPE option (LU or CU) the case chooses. NL: one regime. Tariff values are changed with the JSON overrides below.</p>
-  </div>
-
-  <div class="card block-card" data-block="battery">
-    <h2>Battery</h2>
-    <label class="switch"><input type="checkbox" id="sAncillary" checked><span></span> Keep part of the battery for grid services and count their revenue</label>
-    <p class="hint">The battery model always applies <code>params/ancillary/&lt;country&gt;.json</code>: on is its normal behaviour (25% of the window and power kept out of the dispatch, paid per reserved kW and year). Off is done with overrides in the case file: <code>{"ancillary": {"rate_per_kw_year": 0, "reserve": {"mode": "percent", "frac": 0}}}</code>.</p>
-    <div id="kp-battery" class="param-groups"></div>
-
-    <h3>Sizing</h3>
-    <details><summary>How the proposed size is chosen</summary>
-      <ol class="explain">
-        <li><b>Baseline.</b> The year without battery is optimised once. Its bill (energy, capacity charges, export revenue) is what every size is compared with.</li>
-        <li><b>Each size in the list.</b> The whole year is optimised again with that battery, quarter hour by quarter hour, knowing the year in advance. For that size the model computes:
-          <ul>
-            <li>bill saving = bill without battery &minus; bill with battery</li>
-            <li>yearly value = bill saving + ancillary revenue (0 when switched off) &minus; EMS costs (fixed cost and fees)</li>
-            <li>investment = battery price after subsidy + EMS hardware</li>
-            <li>payback = investment &divide; yearly value (never when the value is zero or negative)</li>
-            <li>lifetime profit = yearly value &times; battery life &minus; investment</li>
-          </ul></li>
-        <li><b>Swiss regime check.</b> When a size's hours of use (DUP) land in the other regime, that size is solved twice more, with the DUP held in the starting regime and under the other regime, and the better of the two is kept.</li>
-        <li><b>Choice.</b> The objective below picks one size among those tested.</li>
-        <li><b>Fine grid (optional).</b> Extra sizes near the chosen one are solved, then the choice is made again over all sizes tested.</li>
-        <li><b>Detail.</b> The chosen size's dispatch gives the bills, monthly tables and payback scenarios.</li>
-      </ol>
-      <p class="hint">The model only compares the sizes it solves: it does not search between them. A finer list gives a more precise size and takes longer.</p>
-    </details>
-    <div class="options" id="objOptions">
-      <label class="option"><input type="radio" name="objective" value="profit" checked><span><b>Profit</b>the highest lifetime profit (value &times; battery life &minus; investment) among sizes that pay back within the battery life; if none does, the shortest payback</span></label>
-      <label class="option"><input type="radio" name="objective" value="payback"><span><b>Payback</b>the shortest payback</span></label>
-      <label class="option"><input type="radio" name="objective" value="custom"><span><b>Custom</b>the tested size closest to the size you give (it is added to the list)</span></label>
-    </div>
-    <label class="field small">Custom size, kWh <input id="zCustom" type="number" min="1" value="422"></label>
-    <div class="row">
-      <label class="field grow">Sizes to test, kWh (comma separated) <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
-      <button id="zDefault">Default list</button>
-    </div>
-    <div class="range-box">
-      <div class="row">
-        <label class="field small">From, kWh <input id="gFrom" type="number" min="1" value="100"></label>
-        <label class="field small">To, kWh <input id="gTo" type="number" min="1" value="1500"></label>
-        <label class="field small">Every, kWh <input id="gStep" type="number" min="1" value="100"></label>
-        <label class="field">For <select id="gTarget"><option value="zSweep">the sizes to test</option><option value="zFine">the fine grid</option></select></label>
-        <button id="gReplace" class="primary">Replace the list</button>
-        <button id="gAdd">Add to the list</button>
-      </div>
-      <p class="hint" id="gInfo">Makes a list from a range and an interval, e.g. 100 to 1,500 every 100 gives 15 sizes.</p>
-    </div>
-    <div class="row">
-      <label class="field grow">Fine grid: extra sizes, kWh, tried only if near the best size <input id="zFine" placeholder="none, e.g. 350, 375, 400, 425"></label>
-      <label class="field small">Near = within, kWh <input id="zWindow" type="number" min="0" value="250"></label>
-    </div>
-    <label class="check"><input type="checkbox" id="zCap" checked> Stop the list at the subsidised maximum size (only with a threshold subsidy, CH's OCAN rule)</label>
-    <div class="callout" id="zPlan">Check the setup to see the exact list the model will solve.</div>
-  </div>
-
-  <div class="card" id="plannedCard" hidden>
-    <h2>Not built yet</h2>
-    <p class="hint" id="plannedList"></p>
-  </div>
-
+<!-- GENERAL: COMMERCIAL ----------------------------------------------------------------------------------------- -->
+<section id="step-commercial" class="step">
+  <h1>Commercial</h1>
+  <p class="lead">Who owns the modules, what the parts cost, how long they last, and what the battery's reserve earns. The grid tariff is on the Market page, the subsidies and EMS on their own pages.</p>
   <div class="card">
-    <h2>Other overrides <span class="muted">JSON, optional</span></h2>
-    <p class="hint">Anything not in the fields above, with the same structure as the parameter files, e.g. <code>{"tariff": {"export": {"per_kwh": 0.066}}}</code>. The fields above win where both set a value.</p>
-    <textarea id="jsonOverrides" rows="4" spellcheck="false" placeholder="{}"></textarea>
-    <p class="error" id="jsonError"></p>
-  </div>
-
-  <div class="row"><button id="checkSetup" class="primary">Check the setup</button><span class="muted" id="checkInfo"></span></div>
-  <div id="previewSite" hidden>
-    <div class="card"><h2>Site in numbers</h2><div class="tiles" id="pvSite"></div></div>
-    <div class="card">
-      <h2>What 100 kWh of battery gives the optimiser</h2>
-      <div class="battery-bars" id="pvBattery"></div>
-      <div class="tiles" id="pvBatteryTiles"></div>
+    <h2>Business model</h2>
+    <div class="row">
+      <label class="field grow">Voltiris modules <select id="mBusiness"></select></label>
     </div>
-    <div class="card"><h2>Prices and subsidy</h2><div class="tiles" id="pvMoney"></div></div>
-    <div class="card"><h2>Tariff and regime</h2><div class="tiles" id="pvTariff"></div><div class="table-wrap"><table class="grid" id="pvPrices"></table></div></div>
+    <p class="hint">EaaS: Voltiris owns the modules and the grower pays per MWh of Voltiris energy used on site; the system then changes the grid's export value and bounds.</p>
   </div>
-
   <div class="card">
-    <h2>All parameters used <span class="muted">after overrides</span></h2>
-    <p class="hint" id="paramsError"></p>
-    <div id="paramBlocks"></div>
+    <h2>Prices, lifetimes, revenue <span class="muted" id="curCommercial"></span></h2>
+    <p class="hint">Grey numbers are the values from the parameter files. Type a value to change it for this run (highlighted); clear it to go back to the file value.</p>
+    <div id="kp-commercial" class="param-groups"></div>
   </div>
-  <div class="nav-buttons"><button data-goto="market">&larr; Back</button><button class="primary" data-goto="run">Next: run &rarr;</button></div>
+  <div class="card pv-part" hidden><h2>In numbers <span class="muted">from the setup check</span></h2><div class="tiles" id="pvMoney"></div></div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 
-<!-- 5 RUN --------------------------------------------------------------------------------------------------------- -->
+<!-- GENERAL: SUBSIDIES ------------------------------------------------------------------------------------------ -->
+<section id="step-subsidies" class="step">
+  <h1>Subsidies</h1>
+  <p class="lead">Subsidies on the Voltiris modules and on the battery, per country and region: a percent, a fixed amount, or a percent up to a threshold size (CH's OCAN rule: yearly load / 365 &times; factor).</p>
+  <div class="card">
+    <h2>Values <span class="muted" id="curSubsidies"></span></h2>
+    <div id="kp-subsidies" class="param-groups"></div>
+  </div>
+  <div class="card pv-part" hidden><h2>In numbers <span class="muted">from the setup check</span></h2><div class="tiles" id="pvSubsidy"></div></div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- GENERAL: EMS ------------------------------------------------------------------------------------------------ -->
+<section id="step-ems" class="step">
+  <h1>EMS</h1>
+  <p class="lead">The energy management system that runs the battery: a fixed yearly cost, hardware bought once with the battery (not subsidised, not replaced), and fees on the ancillary revenue and on the bill saving.</p>
+  <div class="card">
+    <h2>Costs and fees <span class="muted" id="curEms"></span></h2>
+    <div id="kp-ems" class="param-groups"></div>
+  </div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- RUN --------------------------------------------------------------------------------------------------------- -->
 <section id="step-run" class="step">
-  <h1>5 &middot; Run</h1>
-  <p class="lead">The page writes your settings to a case file in the output folder, then runs it with the model that fits the system of step 1. The models are not changed.</p>
+  <h1>Run</h1>
+  <p class="lead">Check the setup (nothing is solved), then run. The page writes your settings to a case file in the output folder and runs it with the model chosen on the System page.</p>
   <div class="callout sys-note" hidden></div>
+  <div class="row"><button id="checkSetup" class="primary">Check the setup</button><span class="muted" id="checkInfo"></span></div>
+  <div class="card pv-part" hidden><h2>Site in numbers</h2><div class="tiles" id="pvSite"></div></div>
   <div class="card">
     <h2>Run</h2>
     <div class="row">
       <label class="field">Tag (used in file names) <input id="rTag" value="study"></label>
       <label class="field grow">Output folder <input id="rFolder" placeholder="interface/app_runs/&lt;tag&gt;"></label>
     </div>
+    <div class="row"><button id="runBtn" class="primary big">Run</button><span class="muted" id="runInfo"></span></div>
+    <details><summary>Other overrides (JSON)</summary>
+      <p class="hint">Anything not in the pages' fields, with the same structure as the parameter files, e.g. <code>{"tariff": {"export": {"per_kwh": 0.066}}}</code>. Each value goes to the block or general item that owns it; the pages' fields win where both set a value.</p>
+      <textarea id="jsonOverrides" rows="4" spellcheck="false" placeholder="{}"></textarea>
+    </details>
+    <p class="error" id="jsonError"></p>
     <details><summary>Case file that will be written</summary><pre class="code" id="rCase"></pre>
       <button id="rDownloadCase">Download this case file</button></details>
+    <details><summary>All parameters used, after overrides</summary>
+      <p class="hint" id="paramsError"></p>
+      <div id="paramBlocks"></div>
+    </details>
   </div>
-  <div class="row"><button id="runBtn" class="primary big">Run</button><span class="muted" id="runInfo"></span></div>
   <div class="card" id="runCard" hidden>
     <h2>Progress <span class="muted" id="runElapsed"></span></h2>
     <ol class="progress" id="runSteps"></ol>
@@ -292,12 +307,12 @@
     <pre class="log" id="runLog"></pre>
     <p class="error" id="runError"></p>
   </div>
-  <div class="nav-buttons"><button data-goto="params">&larr; Back</button><button class="primary" data-goto="results">Results &rarr;</button></div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 
-<!-- 6 RESULTS ----------------------------------------------------------------------------------------------------- -->
+<!-- RESULTS ----------------------------------------------------------------------------------------------------- -->
 <section id="step-results" class="step">
-  <h1>6 &middot; Results</h1>
+  <h1>Results</h1>
   <p class="lead" id="resLead">Run to see the results here.</p>
   <div id="res-battery_study" class="res-body" hidden>
     <div class="tiles big" id="resTiles"></div>
@@ -363,6 +378,7 @@
     <p class="hint" id="resFiles"></p>
     <details><summary>Every summary value</summary><div class="table-wrap"><table class="grid" id="resSummary"></table></div></details>
   </div>
+  <div class="nav-buttons" data-nav></div>
 </section>
 </main>
 </div>

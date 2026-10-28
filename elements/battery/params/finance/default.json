@@ -1,6 +1,0 @@
-{
-  "_about": "Lifetimes used for payback, lifetime profit and battery replacements, the same in every country. A country file params/finance/<country>.json may override them. [battery part of the reference file params/finance/default.json]",
-  "battery_life_yr": 10,
-  "peak_shaving_realisation": 0.5,
-  "peak_shaving_realisation_note": "share of the modelled peak-shaving saving reached in practice (the LP has perfect foresight); for reporting only, not used in the sizing"
-}

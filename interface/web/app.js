@@ -1,14 +1,16 @@
-/* Interface of the thesis model: the system (scenario preset or own blocks) picks the model that runs it (a run type,
-   interface/adapters). The page builds a case from the form, asks the local Python server (interface/server.py) to
-   inspect, preview and run it, and draws the results. No framework; charts with Chart.js (chart.umd.js, stored
-   locally). */
+/* Interface of the thesis model. The System page picks the blocks on a drawing of the greenhouse (a scenario preset or
+   your own); each chosen block has its own page (its input file and technical settings), the Input data page shows
+   every curve, and the general pages hold what is not a physical block (market, commercial, subsidies, EMS). The Run
+   page checks and runs the case with the model that fits the system (a run type, interface/adapters). The page builds
+   a system case (system/setup.py), asks the local Python server (interface/server.py) to inspect, preview and run it,
+   and draws the results. No framework; charts with Chart.js (chart.umd.js, stored locally). */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const S = {
-  options: null, workbook: null, params: null, preview: null, results: null,
+  options: null, params: null, preview: null, results: null,
   system: { preset: null, blocks: new Set() }, runType: null, runTypeWanted: null,
-  columns: {}, fieldValues: {}, charts: {}, logLength: 0, polling: null, monthlyTab: "monthly_battery",
+  data: {}, step: "system", fieldValues: {}, charts: {}, logLength: 0, polling: null, monthlyTab: "monthly_battery",
 };
 // the battery model has no ancillary switch: "off" is these overrides (rate 0, no reserve)
 const ANCILLARY_OFF = { ancillary: { rate_per_kw_year: 0, reserve: { mode: "percent", frac: 0 } } };
@@ -17,6 +19,13 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const COLORS = { load: "#334155", pv: "#e0a100", existing: "#a16207", imp: "#2563eb", exp: "#16a34a",
   bat: "#0f766e", soc: "#7c3aed", da: "#dc2626", neg: "#b42318", accent: "#0f766e", grey: "#94a3b8" };
 const CONVERSION = { power: "repeated", price: "repeated", state: "repeated", energy: "divided", time: "rebuilt" };
+// the general items: what is not a physical block, and when its page is shown
+const GENERAL = [
+  { id: "market", name: "Market", small: "country, tariff, currency", show: () => true },
+  { id: "commercial", name: "Commercial", small: "business model, prices, lifetimes", show: () => has("voltiris") || has("battery") },
+  { id: "subsidies", name: "Subsidies", small: "Voltiris and battery", show: () => has("voltiris") || has("battery") },
+  { id: "ems", name: "EMS", small: "energy management costs", show: () => has("battery") },
+];
 
 // -- small helpers --------------------------------------------------------------------------------------------------
 async function api(path, body) {
@@ -52,7 +61,8 @@ function el(tag, attrs = {}, html = "") {
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function tiles(container, items) {
-  $(container).innerHTML = items.filter(Boolean).map(([k, v, s, cls]) =>
+  const box = typeof container === "string" ? $(container) : container;
+  box.innerHTML = items.filter(Boolean).map(([k, v, s, cls]) =>
     `<div class="tile ${cls || ""}"><div class="k">${esc(k)}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`).join("");
 }
 function getPath(obj, path) { return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj); }
@@ -81,6 +91,12 @@ function flatten(obj, prefix = "") {
 }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 function numbers(text) { return String(text || "").split(/[,;\s]+/).map(Number).filter((n) => isFinite(n) && n > 0); }
+function fillSelect(id, items, placeholder) {
+  const box = typeof id === "string" ? $(id) : id;
+  box.innerHTML = (placeholder ? `<option value="">${esc(placeholder)}</option>` : "") +
+    items.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+}
+const fileName = (p) => String(p || "").split(/[\\/]/).pop();
 
 // -- charts ---------------------------------------------------------------------------------------------------------
 Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
@@ -103,26 +119,175 @@ function hourLabels(start, from, count) {
 }
 const dayTicks = { autoSkip: false, maxRotation: 0,
   callback(value) { const l = this.getLabelForValue(value); return l.endsWith(" 00:00") ? l.slice(0, -6) : ""; } };
+const weekTicks = { autoSkip: false, maxRotation: 0,
+  callback(value) { const l = this.getLabelForValue(value); return l.endsWith(" 00:00") && ["01", "08", "15", "22", "29"].includes(l.slice(4, 6)) ? l.slice(4, 10) : ""; } };
+const monthTicks = { autoSkip: false, maxRotation: 0,
+  callback(value) { const l = this.getLabelForValue(value); return l.endsWith("-01") ? MONTHS[Number(l.slice(5, 7)) - 1] : ""; } };
 function line(label, data, color, extra = {}) {
   return { label, data, borderColor: color, backgroundColor: color, borderWidth: 1.6, pointRadius: 0, tension: 0.15, ...extra };
 }
 
-// -- navigation -----------------------------------------------------------------------------------------------------
-function showStep(name) {
-  document.querySelectorAll(".step").forEach((s) => s.classList.toggle("active", s.id === "step-" + name));
-  document.querySelectorAll("#steps button").forEach((b) => b.classList.toggle("active", b.dataset.step === name));
-  window.scrollTo(0, 0);
-  if (name === "market" || name === "params") loadParams();
-  if (name === "params") checkSetup(true);
-  if (name === "run") renderCaseFile();
-  if (name === "results" && S.results) Object.values(S.charts).forEach((c) => c.resize());
-}
-document.querySelectorAll("#steps button").forEach((b) => b.addEventListener("click", () => showStep(b.dataset.step)));
-document.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => showStep(b.dataset.goto)));
-
-// -- step 1: system -------------------------------------------------------------------------------------------------
+// -- navigation: System and its blocks, Input data, General, Run, Results ------------------------------------------
 const has = (block) => S.system.blocks.has(block);
+const blockInfo = (id) => S.options.blocks.find((b) => b.id === id) || { id, name: id };
+const isBuilt = (id) => blockInfo(id).status === "model";
+const hasData = (id) => !!S.options.block_columns[id];
+const chosenBlocks = () => S.options.blocks.map((b) => b.id).filter(has);
+const pageOf = (id) => (isBuilt(id) ? id : "planned:" + id);
+const generalShown = () => GENERAL.filter((g) => g.show());
+const order = () => ["system", ...chosenBlocks().map(pageOf), "inputs", ...generalShown().map((g) => g.id), "run", "results"];
+function stepLabel(step) {
+  const fixed = { system: "System", inputs: "Input data", run: "Run", results: "Results" };
+  if (fixed[step]) return fixed[step];
+  const g = GENERAL.find((x) => x.id === step);
+  return g ? g.name : blockInfo(step.replace("planned:", "")).name;
+}
+function blockSmall(id) {
+  if (!isBuilt(id)) return "not built yet";
+  if (hasData(id)) {
+    const d = S.data[id] || {};
+    if (!d.path) return id === "grid" ? "connection, regime" : "no input file yet";
+    return (d.info && d.info.error ? "problem · " : d.info && d.info.converted ? "→ 15 min · " : "") + fileName(d.path);
+  }
+  return id === "battery" ? "technology, reserve, sizing" : "settings";
+}
+function renderNav() {
+  const item = (step, title, small, cls = "") => `<button data-step="${step}" class="sub ${cls}" title="${esc(title)}: ${esc(small)}"><i></i><span>${esc(title)}<small>${esc(small)}</small></span></button>`;
+  $("steps").innerHTML =
+    `<button data-step="system"><b>1</b><span>System<small>the greenhouse and its blocks</small></span></button>` +
+    chosenBlocks().map((id) => item(pageOf(id), blockInfo(id).name, blockSmall(id), isBuilt(id) ? "" : "planned")).join("") +
+    `<button data-step="inputs"><b>2</b><span>Input data<small>every curve: year, month, week</small></span></button>` +
+    `<div class="nav-group"><b>3</b><span>General<small>not tied to one block</small></span></div>` +
+    generalShown().map((g) => item(g.id, g.name, g.small)).join("") +
+    `<button data-step="run"><b>4</b><span>Run<small>check, case file, progress</small></span></button>` +
+    `<button data-step="results" class="${S.results ? "done" : ""}"><b>5</b><span>Results<small>value, sweep, bills, dispatch</small></span></button>`;
+  $("steps").querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.step === S.step);
+    b.addEventListener("click", () => showStep(b.dataset.step));
+  });
+  document.querySelectorAll("[data-nav]").forEach((box) => {
+    const steps = order(), i = steps.indexOf(S.step);
+    const prev = steps[i - 1], next = steps[i + 1];
+    box.innerHTML = (prev ? `<button data-goto="${prev}">&larr; ${esc(stepLabel(prev))}</button>` : "<span></span>") +
+      (next ? `<button class="primary" data-goto="${next}">${esc(stepLabel(next))} &rarr;</button>` : "<span></span>");
+    box.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => showStep(b.dataset.goto)));
+  });
+}
+function showStep(step) {
+  if (!order().includes(step)) step = "system";
+  S.step = step;
+  history.replaceState(null, "", "#" + step);   // a refresh opens the same page
+  const section = step.startsWith("planned:") ? "planned" : step;
+  document.querySelectorAll(".step").forEach((s) => s.classList.toggle("active", s.id === "step-" + section));
+  if (section === "planned") {
+    const b = blockInfo(step.slice(8));
+    $("plannedTitle").textContent = b.name;
+    $("plannedText").textContent = `${b.role}. Takes: ${(b.in || []).join(", ") || "nothing"}; gives: ${(b.out || []).join(", ") || "nothing"}.`;
+  }
+  renderNav();
+  window.scrollTo(0, 0);
+  if (["voltiris", "battery", "market", "commercial", "subsidies", "ems", "run"].includes(step)) loadParams();
+  if (["battery", "market", "commercial", "subsidies", "run"].includes(step)) checkSetup(true);
+  if (step === "run") renderCaseFile();
+  if (hasData(step)) drawViewer("blk-" + step);
+  if (step === "inputs") { renderFilesTable(); drawViewer("all"); }
+  if (step === "results" && S.results) Object.values(S.charts).forEach((c) => c.resize());
+}
+
+// -- the System page: the greenhouse drawing -------------------------------------------------------------------------
 const RT = () => S.options.run_types[S.runType] || Object.values(S.options.run_types)[0];
+const CARRIER_COLOR = { electricity: "#e0a100", heat: "#dc2626", co2: "#64748b", "low-temperature heat": "#f97316" };
+const NODE = { w: 172, h: 58 };
+const GH = { x0: 330, x1: 670, peak: 214, eave: 258, base: 452, spans: 6 };
+// the centre of each block on the drawing (viewBox 1000 x 620): electricity on the left, heat on the right, fuels below
+const LAYOUT = {
+  existing_pv: [175, 95], voltiris: [500, 95], aux_heater: [700, 95], external_co2: [885, 95],
+  grid: [120, 300], battery: [120, 470], heat_pump: [885, 270], data_center: [885, 420],
+  ng_boiler: [340, 565], chp: [520, 565], sofc: [700, 565], thermal_storage: [885, 565],
+};
+const SHORT = { existing_pv: "Existing PV", voltiris: "Voltiris", aux_heater: "Backup heater", external_co2: "Liquid CO2",
+  grid: "Grid", battery: "Battery", heat_pump: "Heat pump", data_center: "Data center", ng_boiler: "Gas boiler",
+  chp: "CHP (gas)", sofc: "SOFC (ethanol)", thermal_storage: "Heat storage" };
+const ICONS = {
+  voltiris: '<rect x="2" y="10" width="24" height="13" rx="2"/><path d="M8 10v13M14 10v13M20 10v13"/><circle cx="21" cy="4" r="3"/>',
+  existing_pv: '<path d="M3 22l4-12h18l-4 12z"/><path d="M11 10l-4 12M17 10l-4 12M5 16h18"/>',
+  grid: '<path d="M14 2L7 26M14 2l7 24M9 10h10M8 17h12"/>',
+  battery: '<rect x="2" y="8" width="21" height="14" rx="2"/><path d="M23 12h3v6h-3M13 10l-3 5h5l-3 5"/>',
+  ng_boiler: '<path d="M14 3c4 5 7 8 7 13a7 7 0 0 1-14 0c0-3 2-5 3-7 1 3 2 4 4 4-1-4 0-7 0-10z"/>',
+  chp: '<circle cx="14" cy="14" r="11"/><path d="M15 7l-4 7h5l-3 7"/>',
+  heat_pump: '<circle cx="14" cy="14" r="11"/><path d="M14 14c0-5 5-6 6-3M14 14c4 3 2 8-1 7M14 14c-5 1-7-3-4-6"/>',
+  thermal_storage: '<rect x="6" y="2" width="16" height="24" rx="5"/><path d="M6 15c3 2 5-2 8 0s5 2 8 0"/>',
+  data_center: '<rect x="4" y="3" width="20" height="6" rx="1"/><rect x="4" y="11" width="20" height="6" rx="1"/><rect x="4" y="19" width="20" height="6" rx="1"/><path d="M8 6h1M8 14h1M8 22h1"/>',
+  sofc: '<path d="M5 6h18M5 10h18M5 14h18M5 18h18M5 22h18"/>',
+  external_co2: '<rect x="8" y="6" width="12" height="20" rx="5"/><path d="M12 6V2h4v4"/>',
+  aux_heater: '<path d="M2 14h4l2-6 3 12 3-12 3 12 3-12 2 6h4"/>',
+};
+function nearestOnGreenhouse(cx, cy) {
+  return [Math.min(Math.max(cx, GH.x0), GH.x1), Math.min(Math.max(cy, GH.eave), GH.base)];
+}
+function greenhouseSvg() {
+  const on = has("greenhouse"), w = (GH.x1 - GH.x0) / GH.spans;
+  let roof = `M${GH.x0} ${GH.eave}`;
+  for (let i = 0; i < GH.spans; i++) roof += ` L${GH.x0 + w * i + w / 2} ${GH.peak} L${GH.x0 + w * (i + 1)} ${GH.eave}`;
+  let panes = "", modules = "", plants = "";
+  for (let i = 0; i <= GH.spans * 2; i++) panes += `<path class="pane" d="M${GH.x0 + (w / 2) * i} ${GH.eave} V${GH.base}"/>`;
+  for (let i = 0; i < GH.spans; i++) {
+    const x = GH.x0 + w * i;   // Voltiris modules on the south slope of each span
+    if (has("voltiris")) modules += `<path class="module" d="M${x + 5} ${GH.eave - 6} L${x + w / 2 - 3} ${GH.peak + 8}"/>`;
+  }
+  for (let r = 0; r < 2; r++) for (let i = 0; i < 14; i++)
+    plants += `<ellipse class="plant" cx="${GH.x0 + 18 + i * 23.5}" cy="${GH.base - 14 - r * 22}" rx="8" ry="${6 + (i % 3)}"/>`;
+  return `<g class="node gh ${on ? "on" : ""} built" data-block="greenhouse" tabindex="0" role="checkbox" aria-checked="${on}">
+    <title>Greenhouse demand: the site's electricity load (heat and CO2 demand not built yet)</title>
+    <path class="glass" d="${roof} L${GH.x1} ${GH.base} L${GH.x0} ${GH.base} Z"/>${panes}${plants}${modules}
+    <text x="500" y="320" class="gh-name">Greenhouse demand</text>
+    <text x="500" y="340" class="gh-sub">${on ? "electricity load · heat and CO2 not built" : "click to add"}</text></g>`;
+}
+function nodeSvg(b, cx, cy) {
+  const x = cx - NODE.w / 2, y = cy - NODE.h / 2, on = has(b.id), built = b.status === "model";
+  const preset = S.options.presets.find((p) => p.id === S.system.preset);
+  const note = on && preset && preset.options && preset.options[b.id];
+  const sub = note || (on ? (built ? "in the system" : "chosen · not built yet") : built ? "click to add" : "not built yet");
+  return `<g class="node ${on ? "on" : ""} ${built ? "built" : "planned"}" data-block="${b.id}" tabindex="0" role="checkbox" aria-checked="${on}">
+    <title>${esc(b.name)}: ${esc(b.role)}${built ? "" : " (not built yet)"}</title>
+    <rect x="${x}" y="${y}" width="${NODE.w}" height="${NODE.h}" rx="12"/>
+    <g transform="translate(${x + 12} ${y + 15})" class="icon">${ICONS[b.id] || ""}</g>
+    <text x="${x + 50}" y="${y + 25}" class="name">${esc(SHORT[b.id] || b.name)}</text>
+    <text x="${x + 50}" y="${y + 43}" class="sub">${esc(sub)}</text>
+    ${on ? `<circle cx="${x + NODE.w - 13}" cy="${y + 13}" r="8" class="tick"/><path d="M${x + NODE.w - 17} ${y + 13} l3 3 l5 -6" class="tickmark"/>` : ""}</g>`;
+}
+function renderDiagram() {
+  let lines = "", nodes = "";
+  S.options.blocks.forEach((b) => {
+    if (!LAYOUT[b.id]) return;
+    const [cx, cy] = LAYOUT[b.id];
+    // data center heat reaches the greenhouse only through the heat pump (thesis.md 2.3)
+    const toHp = b.id === "data_center";
+    const [tx, ty] = toHp ? [LAYOUT.heat_pump[0], LAYOUT.heat_pump[1]] : b.id === "voltiris" ? [500, GH.peak + 14] : nearestOnGreenhouse(cx, cy);
+    const on = has(b.id) && has(toHp ? "heat_pump" : "greenhouse");
+    const carriers = (b.out || []).filter((c) => CARRIER_COLOR[c]);
+    const len = Math.hypot(tx - cx, ty - cy) || 1, nx = -(ty - cy) / len, ny = (tx - cx) / len;
+    carriers.forEach((c, i) => {
+      const o = (i - (carriers.length - 1) / 2) * 7;
+      lines += `<line class="flow ${on ? "on" : ""}" x1="${cx + nx * o}" y1="${cy + ny * o}" x2="${tx + nx * o}" y2="${ty + ny * o}" stroke="${CARRIER_COLOR[c]}"/>`;
+    });
+    nodes += nodeSvg(b, cx, cy);
+  });
+  $("diagram").innerHTML = `<svg viewBox="0 52 1000 568" aria-label="The greenhouse and its energy system: click a block to add or remove it">${lines}${greenhouseSvg()}${nodes}</svg>`;
+}
+function toggleBlock(id) {
+  if (has(id)) S.system.blocks.delete(id); else S.system.blocks.add(id);
+  const preset = S.options.presets.find((p) => p.id === S.system.preset);
+  if (preset && !sameSet(new Set(preset.blocks), S.system.blocks)) S.system.preset = null;
+  S.preview = null;
+  systemChanged();
+}
+$("diagram").addEventListener("click", (ev) => { const g = ev.target.closest("[data-block]"); if (g) toggleBlock(g.dataset.block); });
+$("diagram").addEventListener("keydown", (ev) => {
+  const g = ev.target.closest("[data-block]");
+  if (g && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); toggleBlock(g.dataset.block); }
+});
+
 // every run type that can run these blocks (the first is the default), or why none can
 function runTypeFor(blocks) {
   const ids = [], reasons = [];
@@ -130,7 +295,7 @@ function runTypeFor(blocks) {
     const missing = rt.blocks_required.filter((b) => !blocks.has(b));
     const extra = [...blocks].filter((b) => !rt.blocks_allowed.includes(b));
     if (!missing.length && !extra.length) { ids.push(rt.id); continue; }
-    const name = (id) => (S.options.blocks.find((b) => b.id === id) || { name: id }).name;
+    const name = (id) => blockInfo(id).name;
     reasons.push(`${rt.name}: ${[missing.length && `needs ${missing.map(name).join(", ")}`,
       extra.length && `cannot run ${extra.map(name).join(", ")}`].filter(Boolean).join("; ")}`);
   }
@@ -138,27 +303,6 @@ function runTypeFor(blocks) {
   return { id, ids, why: reasons };
 }
 $("runTypeSelect").addEventListener("change", () => { S.runTypeWanted = $("runTypeSelect").value; systemChanged(); });
-function renderBlocks() {
-  const preset = S.options.presets.find((p) => p.id === S.system.preset);
-  const notes = (preset && preset.options) || {};
-  $("blockGrid").innerHTML = S.options.blocks.map((b) => `
-    <label class="block ${has(b.id) ? "on" : ""} ${b.status}">
-      <input type="checkbox" data-block="${b.id}" ${has(b.id) ? "checked" : ""}>
-      <span><b>${esc(b.name)}</b>
-        <small>${esc(b.role)}</small>
-        <small class="carriers">${b.in.length ? `in: ${esc(b.in.join(", "))}` : ""}${b.in.length && b.out.length ? " · " : ""}${b.out.length ? `out: ${esc(b.out.join(", "))}` : ""}</small>
-        ${notes[b.id] ? `<small class="preset-note">${esc(notes[b.id])}</small>` : ""}
-        <em class="status">${b.status === "model" ? "runs today" : "not built yet"}${b.status_note ? ` · ${esc(b.status_note)}` : ""}</em>
-      </span></label>`).join("");
-  $("blockGrid").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
-    if (i.checked) S.system.blocks.add(i.dataset.block); else S.system.blocks.delete(i.dataset.block);
-    const preset = S.options.presets.find((p) => p.id === S.system.preset);
-    if (preset && !sameSet(new Set(preset.blocks), S.system.blocks)) S.system.preset = null;
-    S.preview = null;
-    systemChanged();
-    drawWorkbookWeek();
-  }));
-}
 function sameSet(a, b) { return a.size === b.size && [...a].every((x) => b.has(x)); }
 function setSystem(blocks, preset) {
   S.system = { preset: preset || null, blocks: new Set(blocks) };
@@ -171,32 +315,27 @@ function setSystem(blocks, preset) {
 function systemChanged() {
   $("presetSelect").value = S.system.preset || "";
   const preset = S.options.presets.find((p) => p.id === S.system.preset);
-  $("presetInfo").textContent = preset ? `Preset: ${preset.name}. Change any block below; the system then becomes your own.`
-    : "Your own system. A preset ticks the blocks of a thesis scenario (thesis.md, section 2.1).";
-  renderBlocks();
+  $("presetInfo").textContent = preset ? `Scenario: ${preset.name}` : "Your own system";
+  renderDiagram();
   const fit = runTypeFor(S.system.blocks);
   const changed = fit.id !== S.runType;
   S.runType = fit.id;
-  const planned = S.options.blocks.filter((b) => has(b.id) && b.status !== "model");
+  const planned = chosenBlocks().filter((id) => !isBuilt(id));
   $("systemCheck").innerHTML = fit.id
     ? `This system runs with <b>${esc(RT().name)}</b>.` + (fit.ids.length > 1 ? " Another model can run it too: choose below." : "")
     : `<b>No model can run this system yet.</b> ${fit.why.map(esc).join(" ")}` +
-      (planned.length ? `<br>Not built yet: ${planned.map((b) => esc(b.name)).join(", ")}.` : "");
+      (planned.length ? `<br>Not built yet: ${planned.map((b) => esc(blockInfo(b).name)).join(", ")}.` : "");
   $("runTypeRow").hidden = fit.ids.length < 2;
   fillSelect("runTypeSelect", fit.ids.map((id) => [id, S.options.run_types[id].name]));
   if (fit.id) $("runTypeSelect").value = fit.id;
-  if (changed && fit.id && $("mUtility").value) loadParamsSoon();
   document.querySelectorAll(".sys-note").forEach((n) => {
     n.hidden = !!fit.id;
-    n.innerHTML = `<b>No model can run the system of step 1 yet.</b> The steps below show what the battery study needs; go back to step 1 to choose a system that runs.`;
+    n.innerHTML = "<b>No model can run the system of the System page yet.</b> The pages still show each block's input and settings.";
   });
-  document.querySelectorAll(".block-card").forEach((c) => (c.hidden = !has(c.dataset.block)));
-  $("plannedCard").hidden = !planned.length;
-  $("plannedList").textContent = planned.map((b) => b.name).join(", ") + ": these blocks have no parameters yet and are left out of the run.";
   $("runBtn").disabled = !fit.id;
-  $("runInfo").textContent = fit.id ? "" : "Choose a system that runs in step 1.";
-  if (S.workbook) renderWorkbook();
-  if (changed) S.preview = null;
+  $("runInfo").textContent = fit.id ? "" : "Choose a system that runs on the System page.";
+  if (changed && fit.id && $("mUtility").value) loadParamsSoon();
+  renderNav();
   updateTop();
 }
 $("presetApply").addEventListener("click", () => {
@@ -205,54 +344,74 @@ $("presetApply").addEventListener("click", () => {
   setSystem(preset.blocks, preset.id);
   toast(`Preset ${preset.name}`);
 });
+$("dataYear").addEventListener("change", () => { S.preview = null; chosenBlocks().filter(hasData).forEach((b) => S.data[b].path && readBlock(b)); });
 
-// -- the case: form <-> JSON -----------------------------------------------------------------------------------------
+// -- the case: pages <-> system case ---------------------------------------------------------------------------------
 function collectCase() {
   const market = { country: $("mCountry").value, region: $("mRegion").value };
   const [utility, year] = ($("mUtility").value || "|").split("|");
   Object.assign(market, { utility, year: Number(year) });
-  const sizing = {
-    objective: document.querySelector("input[name=objective]:checked").value,
-    custom_kwh: Number($("zCustom").value) || 422,
-    fine_grid_kwh: numbers($("zFine").value),
-    fine_window_kwh: Number($("zWindow").value) || 0,
-    cap_at_subsidy_size: $("zCap").checked,
-  };
-  const sweep = numbers($("zSweep").value);
-  if (sweep.length) sizing.sweep_kwh = sweep;
-  const manual = document.querySelector("input[name=regimeMode]:checked").value === "manual";
-  const imp = $("sImport").value, exp = $("sExport").value;
-  const c = {
-    input_file: $("wbPath").value.trim().replace(/^"|"$/g, ""),
+  const blocks = {};
+  for (const id of chosenBlocks()) {
+    const cfg = {};
+    if (hasData(id)) {
+      const d = S.data[id];
+      if (d.path) cfg.input_file = d.path;
+      if (Object.keys(d.columns).length) cfg.columns = { ...d.columns };
+    }
+    if (id === "voltiris") cfg.modules = Number($("sModules").value) || 0;
+    if (id === "grid") {
+      const imp = $("sImport").value, exp = $("sExport").value;
+      if (imp !== "") cfg.import_max_kw = Number(imp);
+      if (exp !== "") cfg.export_max_kw = Number(exp);
+      cfg.regime = document.querySelector("input[name=regimeMode]:checked").value === "manual"
+        ? { auto: false, manual: $("sRegime").value } : { auto: true };
+    }
+    if (id === "battery") {
+      const sizing = {
+        objective: document.querySelector("input[name=objective]:checked").value,
+        custom_kwh: Number($("zCustom").value) || 422,
+        fine_grid_kwh: numbers($("zFine").value),
+        fine_window_kwh: Number($("zWindow").value) || 0,
+        cap_at_subsidy_size: $("zCap").checked,
+      };
+      const sweep = numbers($("zSweep").value);
+      if (sweep.length) sizing.sweep_kwh = sweep;
+      cfg.sizing = sizing;
+    }
+    blocks[id] = cfg;
+  }
+  return {
     year: Number($("dataYear").value),
     market,
-    business_model: $("mBusiness").value,
-    pv_modules: has("voltiris") ? Number($("sModules").value) || 0 : 0,
-    use_existing_pv: has("existing_pv"),
-    grid: { import_max_kw: imp === "" ? null : Number(imp), export_max_kw: exp === "" ? null : Number(exp) },
-    regime: manual ? { auto: false, manual: $("sRegime").value } : { auto: true },
-    sizing,
+    blocks,
+    general: { commercial: { business_model: $("mBusiness").value } },
     overrides: $("sAncillary").checked ? currentOverrides() : deepMerge(currentOverrides(), ANCILLARY_OFF),
     tag: $("rTag").value.trim() || "study",
-    system: { preset: S.system.preset, blocks: [...S.system.blocks], run_type: S.runType },
+    system: { preset: S.system.preset, run_type: S.runType },
   };
-  if (Object.keys(S.columns).length) c.columns = { ...S.columns };
-  return c;
 }
 
 function applyCase(c) {
+  const blocks = c.blocks || {};
   const market = c.market || {};
-  // a case without a system is an older battery case; use_existing_pv means the existing PV block
-  const sys = c.system || { preset: null, blocks: S.options.presets.find((p) => p.id === "battery_study").blocks };
-  S.runTypeWanted = sys.run_type || null;
-  setSystem(c.use_existing_pv ? [...new Set(sys.blocks.concat("existing_pv"))] : sys.blocks, sys.preset);
-  $("wbPath").value = c.input_file || "";
-  const match = S.options.workbooks.find((w) => w.path === c.input_file || w.name === (c.input_file || "").split(/[\\/]/).pop());
-  if (match) { $("wbSelect").value = match.path; if (!c.input_file || !/[\\/]/.test(c.input_file)) $("wbPath").value = match.path; }
+  S.runTypeWanted = (c.system || {}).run_type || null;
+  setSystem(Object.keys(blocks), (c.system || {}).preset);
   $("dataYear").value = c.year || market.year || 2026;
-  S.columns = { ...(c.columns || {}) };
+  Object.keys(S.options.block_columns).forEach((id) => {
+    const cfg = blocks[id] || {};
+    S.data[id] = { path: cfg.input_file || "", columns: { ...(cfg.columns || {}) }, info: null };
+    renderDataCard(id);
+  });
   setMarket(market.country, market.region || market.canton, market.utility, market.year);
-  $("mBusiness").value = c.business_model || "direct_sales";
+  const v = blocks.voltiris || {}, g = blocks.grid || {}, sz = (blocks.battery || {}).sizing || {};
+  $("mBusiness").value = ((c.general || {}).commercial || {}).business_model || v.business_model || "direct_sales";
+  $("sModules").value = v.modules || 0;
+  $("sImport").value = g.import_max_kw != null ? g.import_max_kw : "";
+  $("sExport").value = g.export_max_kw != null ? g.export_max_kw : "";
+  const regime = g.regime || { auto: true };
+  document.querySelector(`input[name=regimeMode][value=${regime.auto === false ? "manual" : "auto"}]`).checked = true;
+  S.manualRegime = regime.manual || null;
   // overrides: "ancillary off" first, then the key fields take what they know, the rest goes to the JSON box
   const rest = JSON.parse(JSON.stringify(c.overrides || {}));
   const anc = rest.ancillary || {};
@@ -260,19 +419,13 @@ function applyCase(c) {
   if (off) { delPath(rest, "ancillary.rate_per_kw_year"); delPath(rest, "ancillary.reserve.frac"); delPath(rest, "ancillary.reserve.mode"); }
   S.fieldValues = {};
   KEY_FIELDS.forEach((f) => {
-    const v = getPath(rest, f.path);
-    if (v !== undefined && (typeof v !== "object" || Array.isArray(v))) { S.fieldValues[f.path] = v; delPath(rest, f.path); }
+    const val = getPath(rest, f.path);
+    if (val !== undefined && (typeof val !== "object" || Array.isArray(val))) { S.fieldValues[f.path] = val; delPath(rest, f.path); }
   });
   $("jsonOverrides").value = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : "";
-  $("sModules").value = c.pv_modules || 0;
   $("sAncillary").checked = !off;
-  $("sImport").value = c.grid && c.grid.import_max_kw != null ? c.grid.import_max_kw : "";
-  $("sExport").value = c.grid && c.grid.export_max_kw != null ? c.grid.export_max_kw : "";
-  const regime = c.regime || { auto: true };
-  document.querySelector(`input[name=regimeMode][value=${regime.auto === false ? "manual" : "auto"}]`).checked = true;
-  S.manualRegime = regime.manual || null;
-  const sz = c.sizing || {};
   document.querySelector(`input[name=objective][value=${sz.objective || "profit"}]`).checked = true;
+  objectiveChanged();
   $("zCustom").value = sz.custom_kwh || 422;
   $("zSweep").value = (sz.sweep_kwh || []).join(", ");
   $("zFine").value = (sz.fine_grid_kwh || []).join(", ");
@@ -281,10 +434,11 @@ function applyCase(c) {
   $("rTag").value = c.tag || "study";
   $("rFolder").value = "";
   S.preview = null;
-  $("previewSite").hidden = true;
+  document.querySelectorAll(".pv-part").forEach((p) => (p.hidden = true));
   updateTop();
-  if ($("wbPath").value) readWorkbook();
+  chosenBlocks().filter(hasData).forEach((id) => S.data[id].path && readBlock(id));
   loadParams();
+  renderNav();
 }
 
 function renderCaseFile() {
@@ -309,10 +463,6 @@ function updateTop() {
 }
 
 // -- case files ------------------------------------------------------------------------------------------------------
-function fillSelect(id, items, placeholder) {
-  $(id).innerHTML = (placeholder ? `<option value="">${esc(placeholder)}</option>` : "") +
-    items.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
-}
 $("caseLoad").addEventListener("click", async () => {
   if (!$("caseSelect").value) return toast("Choose a case file first.", true);
   try {
@@ -320,128 +470,240 @@ $("caseLoad").addEventListener("click", async () => {
     applyCase(data.case);
     $("caseInfo").textContent = `Loaded ${data.path}`;
     toast("Case loaded");
+    if (S.pendingStep) { showStep(S.pendingStep); S.pendingStep = null; }
   } catch (e) { toast(e.message, true); }
 });
 $("caseFile").addEventListener("change", async (ev) => {
   const file = ev.target.files[0]; if (!file) return;
   try {
     const c = JSON.parse(await file.text());
-    if (c.market && c.market.canton && !c.market.region) c.market.region = c.market.canton;
+    if (!c.blocks) throw new Error("this button opens system case files (with \"blocks\"); a reference case file opens from the list (put it in examples/) or from the command line");
     applyCase(c);
-    $("caseInfo").textContent = `Loaded ${file.name}. Its workbook path was "${c.input_file}": if it is not found, pick or upload the workbook in step 2.`;
+    $("caseInfo").textContent = `Loaded ${file.name}. Its input files must be full paths; if one is not found, pick or upload it on the block's page.`;
   } catch (e) { toast("Not a valid case file: " + e.message, true); }
   ev.target.value = "";
 });
 $("caseNew").addEventListener("click", () => {
   const m = RT().markets[0];
-  applyCase({ input_file: $("wbSelect").value || "", market: m, year: m.year, tag: "study" });
-  $("caseInfo").textContent = "Empty case with the battery study preset: change the blocks, pick the workbook, then go through the steps.";
+  const preset = S.options.presets.find((p) => p.id === "battery_study");
+  applyCase({ year: m.year, market: m, blocks: Object.fromEntries(preset.blocks.map((b) => [b, {}])), tag: "study",
+    system: { preset: preset.id } });
+  $("caseInfo").textContent = "Empty case with the battery study preset: change the blocks, then give each block its input file on its page.";
 });
 
-// -- step 2: workbook ------------------------------------------------------------------------------------------------
-$("wbSelect").addEventListener("change", () => { if ($("wbSelect").value) { $("wbPath").value = $("wbSelect").value; readWorkbook(); } });
-$("wbUpload").addEventListener("change", async (ev) => {
-  const file = ev.target.files[0]; if (!file) return;
-  try {
-    const res = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    $("wbPath").value = data.path;
-    S.options.workbooks.push({ name: data.name, path: data.path });
-    fillSelect("wbSelect", S.options.workbooks.map((w) => [w.path, w.name]), "— choose —");
-    $("wbSelect").value = data.path;
-    toast(`Uploaded ${data.name}`);
-    readWorkbook();
-  } catch (e) { toast(e.message, true); }
-  ev.target.value = "";
-});
-$("wbRead").addEventListener("click", () => readWorkbook());
-$("dataYear").addEventListener("change", () => readWorkbook());
+// -- curves: one viewer per block page, one for every block (Input data page) ---------------------------------------
+const SERIES_STYLE = {
+  load_kw: { label: "Greenhouse load", color: COLORS.load },
+  pv_w_per_module: { label: "Voltiris PV", color: COLORS.pv },
+  existing_pv_kw: { label: "Existing PV", color: COLORS.existing },
+  day_ahead_eur_kwh: { label: "Day-ahead price", color: COLORS.da },
+};
+function curveSeries(blocks) {
+  const out = [];
+  blocks.forEach((id) => {
+    const w = S.data[id] && S.data[id].info;
+    if (!w || !w.series) return;
+    w.series.forEach((s) => {
+      const st = SERIES_STYLE[s.role] || { label: s.about, color: COLORS.accent };
+      let values = s.hourly, unit = s.unit, label = st.label;
+      if (s.unit === "W per module") {   // shown for the module count of the Voltiris page
+        const n = Number($("sModules").value) || 0;
+        if (n > 0) { values = values.map((v) => (v == null ? null : (v * n) / 1000)); unit = "kW"; label += ` (${fmt(n)} modules)`; }
+        else label += " (one module)";
+      }
+      out.push({ key: s.role, label, unit, color: st.color, price: s.kind === "price", values, start: w.hourly_start });
+    });
+  });
+  return out;
+}
+const VIEWERS = {};
+function makeViewer(box, key, source, chips = false) {
+  const prev = VIEWERS[key] || { scale: "week", month: 5, week: 25, hidden: new Set() };
+  VIEWERS[key] = { ...prev, source, box };
+  const v = VIEWERS[key];
+  box.innerHTML = `<div class="viewer-bar">
+      <div class="seg">${["year", "month", "week"].map((s) => `<label><input type="radio" name="scale-${key}" value="${s}" ${s === v.scale ? "checked" : ""}><span>${s[0].toUpperCase() + s.slice(1)}</span></label>`).join("")}</div>
+      <select data-v="month">${MONTHS.map((m, i) => `<option value="${i}" ${i === v.month ? "selected" : ""}>${m}</option>`).join("")}</select>
+      <input type="range" data-v="week" min="0" max="51" value="${v.week}">
+      <span class="muted" data-v="label"></span>
+    </div>
+    ${chips ? '<div class="chips" data-v="chips"></div>' : ""}
+    <div class="chart tall"><canvas id="cv-${key}"></canvas></div>`;
+  box.querySelectorAll(`input[name="scale-${key}"]`).forEach((r) => r.addEventListener("change", () => { v.scale = r.value; drawViewer(key); }));
+  box.querySelector('[data-v="month"]').addEventListener("change", (e) => { v.month = Number(e.target.value); drawViewer(key); });
+  box.querySelector('[data-v="week"]').addEventListener("input", (e) => { v.week = Number(e.target.value); drawViewer(key); });
+}
+function drawViewer(key) {
+  const v = VIEWERS[key];
+  if (!v || !v.box.offsetParent) return;   // not built or not on screen
+  const q = (r) => v.box.querySelector(`[data-v="${r}"]`);
+  const all = v.source();
+  q("month").hidden = v.scale !== "month";
+  q("week").hidden = v.scale !== "week";
+  const chipBox = q("chips");
+  if (chipBox) {
+    chipBox.innerHTML = all.map((s) => `<label class="chip"><input type="checkbox" data-key="${s.key}" ${v.hidden.has(s.key) ? "" : "checked"}><i style="background:${s.color}"></i>${esc(s.label)}, ${esc(s.unit)}</label>`).join("");
+    chipBox.querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
+      if (i.checked) v.hidden.delete(i.dataset.key); else v.hidden.add(i.dataset.key);
+      drawViewer(key);
+    }));
+  }
+  const series = all.filter((s) => !v.hidden.has(s.key));
+  if (!series.length) { q("label").textContent = all.length ? "Tick a curve to show it." : "No input file read yet."; if (S.charts["cv-" + key]) S.charts["cv-" + key].destroy(); return; }
+  const start = series[0].start, t0 = Date.parse(start + "Z"), year = new Date(t0).getUTCFullYear(), len = series[0].values.length;
+  let labels, pick, ticks, text;
+  if (v.scale === "year") {
+    const days = Math.floor(len / 24);
+    labels = Array.from({ length: days }, (_, d) => new Date(t0 + d * 864e5).toISOString().slice(0, 10));
+    pick = (a) => Array.from({ length: days }, (_, d) => {
+      let sum = 0, n = 0;
+      for (let h = d * 24; h < d * 24 + 24; h++) if (a[h] != null) { sum += a[h]; n++; }
+      return n ? sum / n : null;
+    });
+    ticks = monthTicks; text = `${year}, daily means`;
+  } else {
+    const from = v.scale === "week" ? v.week * 168 : Math.round((Date.UTC(year, v.month, 1) - t0) / 3600e3);
+    const to = v.scale === "week" ? Math.min(len, from + 168) : Math.min(len, Math.round((Date.UTC(year, v.month + 1, 1) - t0) / 3600e3));
+    labels = hourLabels(start, from, to - from);
+    pick = (a) => a.slice(from, to);
+    ticks = v.scale === "week" ? dayTicks : weekTicks;
+    text = `${labels[0].slice(4, 10)} to ${labels[labels.length - 1].slice(4, 10)} ${year}, hourly means`;
+  }
+  q("label").textContent = text;
+  const energy = series.filter((s) => !s.price), prices = series.filter((s) => s.price);
+  const dual = energy.length && prices.length;
+  chart("cv-" + key, { type: "line", data: { labels, datasets: series.map((s) =>
+    line(`${s.label}, ${s.unit}`, pick(s.values), s.color, s.price && dual ? { yAxisID: "y1", borderDash: [4, 3], borderWidth: 1.3 } : {})) },
+    options: { plugins: { legend: { display: !chipBox } }, scales: { x: { ticks, grid: { display: false } },
+      y: { title: { display: true, text: (energy[0] || prices[0]).unit } },
+      y1: { display: !!dual, position: "right", grid: { display: false }, title: { display: !!dual, text: dual ? prices[0].unit : "" } } } } });
+}
+$("sModules").addEventListener("input", debounce(() => { drawViewer("blk-voltiris"); drawViewer("all"); }, 300));
 
-async function readWorkbook() {
-  const path = $("wbPath").value.trim().replace(/^"|"$/g, "");
-  if (!path) return toast("Give the workbook first.", true);
-  $("wbRead").disabled = true; $("wbRead").textContent = "Reading…";
-  try {
-    S.workbook = await api("/api/workbook", { path, year: Number($("dataYear").value), columns: S.columns, run_type: RT().id });
-    // a coarser workbook comes back converted to 15 min: the run uses the converted file
-    if (S.workbook.converted_from) $("wbPath").value = S.workbook.path;
-    renderWorkbook();
-    S.preview = null;
-  } catch (e) { toast("Cannot read the workbook: " + e.message, true); }
-  $("wbRead").disabled = false; $("wbRead").textContent = "Read workbook";
+function renderFilesTable() {
+  const blocks = chosenBlocks().filter((id) => isBuilt(id) && hasData(id));
+  $("filesTable").innerHTML = `<tr><th>Block</th><th>File</th><th>Step in the file</th><th>Steps at 15 min</th><th>Status</th><th></th></tr>` +
+    (blocks.length ? blocks.map((id) => {
+      const d = S.data[id], w = d.info;
+      const status = !d.path ? (id === "grid" ? '<span class="optional">none (only for day-ahead tariffs)</span>' : '<span class="missing">missing</span>')
+        : !w ? "reading…" : w.error ? `<span class="missing">${esc(w.error)}</span>` : w.converted ? '<span class="ok">converted to 15 min</span>' : '<span class="ok">ready</span>';
+      return `<tr><td class="text"><b>${esc(blockInfo(id).name)}</b></td><td class="text">${esc(fileName(d.path)) || "–"}</td>
+        <td>${w && w.step ? `${fmt(w.step.step_minutes)} min` : "–"}</td><td>${w && w.steps ? fmt(w.steps) : "–"}</td>
+        <td class="text">${status}</td><td><button data-open="${id}">Open page</button></td></tr>`;
+    }).join("") : `<tr><td class="text" colspan="6">No chosen block reads an input file.</td></tr>`);
+  $("filesTable").querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => showStep(b.dataset.open)));
 }
 
-function renderWorkbook() {
-  const w = S.workbook, defaults = RT().default_columns;
-  $("wbColumnsCard").hidden = false;
-  const opts = (sel) => `<option value="">— none —</option>` + w.columns.map((c) =>
-    `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
-  const roles = w.roles.filter((r) => r.block === "time" || has(r.block));
-  $("wbRoles").innerHTML = `<tr><th>Used for</th><th>Block</th><th>Unit</th><th>Coarser step</th><th>Needed</th><th>Column in the workbook</th><th>Status</th></tr>` +
-    roles.map((r) => `<tr><td class="text"><b>${esc(r.about)}</b><br><small class="muted">${r.role}</small></td>
-      <td class="text">${esc(r.block)}</td><td class="text">${esc(r.unit)}</td><td class="text">${CONVERSION[r.kind] || "–"}</td>
-      <td class="text">${esc(r.needed)}</td>
+// -- a block's input file --------------------------------------------------------------------------------------------
+function renderDataCard(id) {
+  const box = document.querySelector(`.data-card[data-block="${id}"]`);
+  if (!box) return;
+  const cols = S.options.block_columns[id];
+  const needs = cols.data.map((c) => `<b>${esc(c.about)}</b> in ${esc(c.unit)} (column <code>${esc(c.column)}</code>, ${esc(c.needed)})`).join("; ");
+  box.innerHTML = `<div class="card">
+      <h2>Input file <span class="muted">this block's own</span></h2>
+      <p class="hint">Reads ${needs}, with the time columns Month, Day, Hour (and Minute). An hourly or 30-minute file is converted to 15 min when the system runs (kW, W and prices repeated in each quarter hour, kWh per step divided).</p>
+      <div class="row">
+        <label class="field grow">File in examples/ or uploaded <select data-r="pick"></select></label>
+        <label class="button">Upload&hellip;<input type="file" data-r="upload" accept=".xlsx,.xls" hidden></label>
+      </div>
+      <div class="row">
+        <label class="field grow">Full path of the file <input data-r="path" placeholder="C:\\...\\file.xlsx"></label>
+        <button class="primary" data-r="read">Read file</button>
+        <button data-r="clear">No file</button>
+      </div>
+      <div class="tiles" data-r="step"></div>
+      <p class="error" data-r="error"></p>
+      <details data-r="cols-card" hidden><summary data-r="cols-sum">Columns</summary>
+        <p class="hint">What the block reads from each column. If the file uses other names, pick the right column; the mapping is saved in the case under this block's <code>columns</code>.</p>
+        <div class="table-wrap"><table class="grid" data-r="roles"></table></div>
+      </details>
+    </div>
+    <div class="card" data-r="content" hidden>
+      <h2>What is in it</h2>
+      <div class="tiles" data-r="tiles"></div>
+      <div class="viewer" data-r="viewer"></div>
+    </div>`;
+  const q = (r) => box.querySelector(`[data-r="${r}"]`);
+  fillSelect(q("pick"), S.options.workbooks.map((w) => [w.path, w.name]), "— choose —");
+  const d = S.data[id];
+  q("path").value = d.path;
+  q("pick").value = S.options.workbooks.some((w) => w.path === d.path) ? d.path : "";
+  q("pick").addEventListener("change", () => { if (q("pick").value) { d.path = q("pick").value; q("path").value = d.path; readBlock(id); } });
+  q("read").addEventListener("click", () => { d.path = q("path").value.trim().replace(/^"|"$/g, ""); readBlock(id); });
+  q("clear").addEventListener("click", () => { Object.assign(d, { path: "", info: null }); renderDataCard(id); S.preview = null; renderNav(); });
+  q("upload").addEventListener("change", async (ev) => {
+    const file = ev.target.files[0]; if (!file) return;
+    try {
+      const res = await fetch(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      S.options.workbooks.push({ name: "uploads/" + data.name, path: data.path });
+      d.path = data.path;
+      Object.keys(S.options.block_columns).forEach((b) => b !== id && renderDataCard(b));
+      renderDataCard(id);
+      toast(`Uploaded ${data.name}`);
+      readBlock(id);
+    } catch (e) { toast(e.message, true); }
+  });
+  makeViewer(q("viewer"), "blk-" + id, () => curveSeries([id]));
+  if (d.info) renderBlockData(id);
+}
+
+async function readBlock(id) {
+  const d = S.data[id];
+  if (!d.path) return toast("Give the file first.", true);
+  const btn = document.querySelector(`.data-card[data-block="${id}"] [data-r="read"]`);
+  btn.disabled = true; btn.textContent = "Reading…";
+  try {
+    d.info = await api("/api/block-file", { block: id, path: d.path, year: Number($("dataYear").value), columns: d.columns });
+    S.preview = null;
+  } catch (e) { d.info = { error: e.message, roles: [], columns: [] }; }
+  btn.disabled = false; btn.textContent = "Read file";
+  renderBlockData(id);
+  renderNav();
+  if (S.step === "inputs") { renderFilesTable(); drawViewer("all"); }
+}
+
+function renderBlockData(id) {
+  const box = document.querySelector(`.data-card[data-block="${id}"]`);
+  const q = (r) => box.querySelector(`[data-r="${r}"]`);
+  const d = S.data[id], w = d.info, defaults = S.options.block_columns[id].defaults;
+  q("path").value = d.path;
+  q("error").textContent = w.error || "";
+  q("cols-card").hidden = !w.roles.length;
+  const missing = w.roles.filter((r) => !r.found && r.needed === "always" && r.role !== "minute");
+  q("cols-sum").textContent = missing.length ? `Columns: ${missing.length} missing, map ${missing.length > 1 ? "them" : "it"} here` : "Columns: every column found";
+  q("cols-card").open = !!missing.length;
+  const opts = (sel) => `<option value="">— none —</option>` + w.columns.map((c) => `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
+  q("roles").innerHTML = `<tr><th>Used for</th><th>Unit</th><th>Coarser step</th><th>Needed</th><th>Column in the file</th><th>Status</th></tr>` +
+    w.roles.map((r) => `<tr><td class="text"><b>${esc(r.about)}</b><br><small class="muted">${r.role}</small></td>
+      <td class="text">${esc(r.unit)}</td><td class="text">${CONVERSION[r.kind] || "–"}</td><td class="text">${esc(r.needed)}</td>
       <td class="text"><select data-role="${r.role}">${opts(r.found ? r.column : "")}</select></td>
       <td class="text">${r.found ? '<span class="ok">found</span>' : r.needed === "always" ? '<span class="missing">missing</span>' : '<span class="optional">not found</span>'}</td></tr>`).join("");
-  $("wbRoles").querySelectorAll("select").forEach((s) => s.addEventListener("change", () => {
+  q("roles").querySelectorAll("select").forEach((s) => s.addEventListener("change", () => {
     const role = s.dataset.role;
-    if (s.value && s.value !== defaults[role]) S.columns[role] = s.value; else delete S.columns[role];
-    if (S.workbook.converted_from) $("wbPath").value = S.workbook.converted_from.path;   // map on the original
-    readWorkbook();
+    if (s.value && s.value !== defaults[role]) d.columns[role] = s.value; else delete d.columns[role];
+    readBlock(id);
   }));
-  renderStep();
-  if (w.error) { $("wbContentCard").hidden = true; return toast(w.error, true); }
-  $("wbContentCard").hidden = false;
-  const t = w.totals;
-  tiles("wbTiles", [
-    ["Period", `${t.start.slice(0, 10)}`, `to ${t.end.slice(0, 16).replace("T", " ")}`],
-    ["Rows", fmt(t.steps), `one per ${t.step_minutes} min${t.steps !== 35040 && t.steps !== 35136 ? " · not a full year" : ""}`],
-    ["Load", `${fmt(t.load_mwh, 0)} MWh`, `peak ${fmt(t.load_peak_kw, 0)} kW · mean ${fmt(t.load_mean_kw, 0)} kW`],
-    w.has.pv_w_per_module && ["Yield of one module", `${fmt(t.pv_kwh_per_module, 1)} kWh/yr`, `peak ${fmt(t.pv_peak_w_per_module, 0)} W`],
-    w.has.existing_pv_kw && ["Existing PV", `${fmt(t.existing_pv_mwh, 1)} MWh`, `peak ${fmt(t.existing_pv_peak_kw, 0)} kW`],
-    w.has.day_ahead_eur_kwh && ["Day-ahead price", `${fmt(t.day_ahead_mean, 4)} EUR/kWh`,
-      `min ${fmt(t.day_ahead_min, 4)} · max ${fmt(t.day_ahead_max, 4)} · ${fmt(t.day_ahead_negative_h, 1)} h negative${t.day_ahead_missing ? ` · ${t.day_ahead_missing} missing` : ""}`],
-  ]);
-  const ds = [{ label: "Load, MWh", data: w.monthly.load.map((v) => v / 1000), backgroundColor: COLORS.load }];
-  if (w.monthly.existing_pv) ds.push({ label: "Existing PV, MWh", data: w.monthly.existing_pv.map((v) => v / 1000), backgroundColor: COLORS.existing });
-  chart("wbMonthly", { type: "bar", data: { labels: MONTHS, datasets: ds } });
-  chart("wbMonthlyPv", { type: "bar", data: { labels: MONTHS, datasets: [{ label: "kWh per module", data: w.monthly.pv_module_kw || [], backgroundColor: COLORS.pv }] },
-    options: { plugins: { legend: { display: false } } } });
-  drawWorkbookWeek();
+  const step = w.step;
+  if (step) {
+    tiles(q("step"), [
+      ["Step in the file", `${fmt(step.step_minutes)} min`, `${fmt(step.rows)} rows${step.irregular_steps ? ` · ${fmt(step.irregular_steps)} irregular steps` : ""}`, w.converted ? "accent" : ""],
+      ["Step of the model", `${S.options.model_step_min} min`, w.converted ? `converted when the system runs: ${fmt(w.steps)} steps` : "no conversion needed"],
+      ["Period", w.start.slice(0, 10), `to ${w.end.slice(0, 16).replace("T", " ")}`],
+    ]);
+  } else q("step").innerHTML = "";
+  q("content").hidden = !w.series || !w.series.length;
+  if (!w.series) return;
+  tiles(q("tiles"), w.series.map((s) => s.kind === "price"
+    ? [s.about, `${fmt(s.mean, 4)} ${s.unit}`, `min ${fmt(s.min, 4)} · max ${fmt(s.max, 4)} · ${fmt(s.negative_h, 1)} h negative${s.missing ? ` · ${s.missing} missing` : ""}`]
+    : [s.about, s.unit === "W per module" ? `${fmt(s.total_kwh, 1)} kWh/yr per module` : `${fmt(s.total_kwh / 1000, 1)} MWh/yr`,
+      `peak ${fmt(s.peak, 0)} ${s.unit} · mean ${fmt(s.mean, 1)} ${s.unit}${s.missing ? ` · ${s.missing} missing` : ""}`]));
+  drawViewer("blk-" + id);
 }
-function renderStep() {
-  const w = S.workbook, conv = w.converted_from, step = conv || w.step;
-  $("wbStepCard").hidden = !step;
-  if (!step) return;
-  const model = S.options.model_step_min;
-  tiles("wbStepTiles", [
-    ["Step in the workbook", `${fmt(step.step_minutes)} min`, `${fmt(step.rows)} rows${step.irregular_steps ? ` · ${fmt(step.irregular_steps)} irregular steps` : ""}`, conv ? "accent" : ""],
-    ["Step of the model", `${model} min`, conv ? `converted: ${fmt(w.rows)} rows` : "no conversion needed"],
-  ]);
-  $("wbStepNote").innerHTML = conv
-    ? `The workbook was converted and the run uses the converted file: <code>${esc(w.path)}</code>. Kept columns: ${Object.entries(conv.kinds).map(([c, k]) => `<code>${esc(c)}</code> ${CONVERSION[k]}`).join(", ")}. Other columns are dropped. Original: <code>${esc(conv.path)}</code>.`
-    : (step.irregular_steps ? "Some steps differ from the usual one (gaps, repeated or missing hours): check the workbook." : "");
-}
-function drawWorkbookWeek() {
-  const w = S.workbook; if (!w || !w.hourly) return;
-  const week = Number($("wbWeek").value), from = week * 168, h = w.hourly, n = Math.min(168, h.load.length - from);
-  const labels = hourLabels(h.start, from, n);
-  $("wbWeekLabel").textContent = `${labels[0].slice(0, 10)} to ${labels[n - 1].slice(0, 10)}`;
-  const modules = has("voltiris") ? Number($("sModules").value) || 0 : 0;
-  $("wbModulesNote").textContent = fmt(modules);
-  const slice = (a) => (a || []).slice(from, from + n);
-  const sets = [line("Load, kW", slice(h.load), COLORS.load)];
-  if (h.pv_module_kw && modules) sets.push(line("Voltiris PV, kW", slice(h.pv_module_kw).map((v) => v * modules), COLORS.pv, { fill: false }));
-  if (h.existing_pv && has("existing_pv")) sets.push(line("Existing PV, kW", slice(h.existing_pv), COLORS.existing));
-  if (h.day_ahead) sets.push(line("Day-ahead, EUR/kWh", slice(h.day_ahead), COLORS.da, { yAxisID: "y1", borderDash: [4, 3], borderWidth: 1.2 }));
-  chart("wbWeekChart", { type: "line", data: { labels, datasets: sets },
-    options: { scales: { x: { ticks: dayTicks, grid: { display: false } }, y: { title: { display: true, text: "kW" } },
-      y1: { display: !!h.day_ahead, position: "right", grid: { display: false }, title: { display: true, text: "EUR/kWh" } } } } });
-}
-$("wbWeek").addEventListener("input", drawWorkbookWeek);
 
-// -- step 3: market --------------------------------------------------------------------------------------------------
+// -- market (general) -------------------------------------------------------------------------------------------------
 function setMarket(country, region, utility, year) {
   const ms = RT().markets;
   const countries = [...new Set(ms.map((m) => m.country))];
@@ -460,40 +722,42 @@ $("mUtility").addEventListener("change", marketChanged);
 $("mBusiness").addEventListener("change", marketChanged);
 function marketChanged() { S.preview = null; updateTop(); loadParams(); }
 
-// -- step 4: parameters ----------------------------------------------------------------------------------------------
-// the parameters you can change without writing JSON (block, group, path in the parameter dict, label, unit, kind)
+// -- parameters: on the Voltiris and Battery pages and the general pages ---------------------------------------------
+// the parameters you can change without writing JSON: page (its container kp-<page>), group, path, label, unit, kind
 const KEY_FIELDS = [
-  ["battery", "Technology", "tech.battery.c_rate", "C-rate", "kW per kWh bought", "num"],
-  ["battery", "Technology", "tech.battery.soc_min", "Lowest state of charge", "% of the size", "pct"],
-  ["battery", "Technology", "tech.battery.soc_max", "Highest state of charge", "% of the size", "pct"],
-  ["battery", "Technology", "tech.battery.efficiency_store", "Charging efficiency", "%", "pct"],
-  ["battery", "Technology", "tech.battery.efficiency_dispatch", "Discharging efficiency", "%", "pct"],
-  ["battery", "Technology", "tech.battery.self_discharge_per_day", "Self-discharge", "% per day", "pct"],
-  ["voltiris", "Technology", "tech.module_wp", "Module power", "Wp per module", "num"],
-  ["battery", "Investment and subsidy", "capex.battery_tiers_per_kwh", "Battery price tiers", "kWh:price per kWh, …", "tiers"],
-  ["battery", "Investment and subsidy", "capex.battery_replacement_frac", "Replacement cost", "% of the gross price", "pct"],
-  ["voltiris", "Investment and subsidy", "capex.pv_per_wp", "PV price", "per Wp", "num"],
-  ["battery", "Investment and subsidy", "subsidies.battery.mode", "Battery subsidy", "", "select:percent|fixed|threshold"],
-  ["battery", "Investment and subsidy", "subsidies.battery.frac", "Battery subsidy share", "%", "pct"],
-  ["battery", "Investment and subsidy", "subsidies.battery.amount", "Battery subsidy amount", "fixed mode", "num"],
-  ["battery", "Investment and subsidy", "subsidies.battery.threshold_mode", "Threshold size from", "", "select:ocan|manual"],
-  ["battery", "Investment and subsidy", "subsidies.battery.threshold_kwh", "Threshold size", "kWh (manual)", "num"],
-  ["battery", "Investment and subsidy", "subsidies.battery.ocan_factor", "OCAN factor", "kWh per daily kWh of load", "num"],
-  ["voltiris", "Investment and subsidy", "subsidies.pv.frac", "PV subsidy share", "%", "pct"],
-  ["battery", "EMS", "ems.fixed_per_year", "Fixed cost", "per year", "num"],
-  ["battery", "EMS", "ems.capex", "Hardware", "once, with the battery", "num"],
-  ["battery", "EMS", "ems.savings_fee_pct.voltiris", "Fee on bill savings, Voltiris", "%", "pct"],
-  ["battery", "EMS", "ems.savings_fee_pct.external", "Fee on bill savings, external", "%", "pct"],
-  ["battery", "EMS", "ems.ancillary_fee_pct.voltiris", "Fee on ancillary revenue, Voltiris", "%", "pct"],
-  ["battery", "EMS", "ems.ancillary_fee_pct.external", "Fee on ancillary revenue, external", "%", "pct"],
-  ["battery", "Lifetimes", "finance.battery_life_yr", "Battery life", "years", "num"],
-  ["voltiris", "Lifetimes", "finance.pv_life_yr", "PV life", "years", "num"],
-  ["battery", "Ancillary services (used when switched on above)", "ancillary.rate_per_kw_year", "Revenue rate", "per reserved kW and year", "num"],
-  ["battery", "Ancillary services (used when switched on above)", "ancillary.reserve.mode", "Reserve", "", "select:percent|fixed_kwh"],
-  ["battery", "Ancillary services (used when switched on above)", "ancillary.reserve.frac", "Reserve share", "% of window and power", "pct"],
-  ["battery", "Ancillary services (used when switched on above)", "ancillary.reserve.kwh", "Fixed reserve", "kWh (fixed_kwh mode)", "num"],
-  ["voltiris", "Business model", "business_model.price_per_mwh", "EaaS price", "per MWh of Voltiris energy used on site", "num"],
-].map(([block, group, path, label, unit, kind]) => ({ block, group, path, label, unit, kind }));
+  ["voltiris", "", "tech.module_wp", "Module power", "Wp per module", "num"],
+  ["battery", "", "tech.battery.c_rate", "C-rate", "kW per kWh bought", "num"],
+  ["battery", "", "tech.battery.soc_min", "Lowest state of charge", "% of the size", "pct"],
+  ["battery", "", "tech.battery.soc_max", "Highest state of charge", "% of the size", "pct"],
+  ["battery", "", "tech.battery.efficiency_store", "Charging efficiency", "%", "pct"],
+  ["battery", "", "tech.battery.efficiency_dispatch", "Discharging efficiency", "%", "pct"],
+  ["battery", "", "tech.battery.self_discharge_per_day", "Self-discharge", "% per day", "pct"],
+  ["reserve", "", "ancillary.reserve.mode", "How it is set", "", "select:percent|fixed_kwh"],
+  ["reserve", "", "ancillary.reserve.frac", "Share", "% of the window and the power", "pct"],
+  ["reserve", "", "ancillary.reserve.kwh", "Fixed size", "kWh (fixed_kwh)", "num"],
+  ["commercial", "Business model", "business_model.price_per_mwh", "EaaS price", "per MWh of Voltiris energy used on site", "num"],
+  ["commercial", "Investment prices", "capex.pv_per_wp", "Voltiris modules", "per Wp", "num"],
+  ["commercial", "Investment prices", "capex.battery_tiers_per_kwh", "Battery price tiers", "kWh:price per kWh, …", "tiers"],
+  ["commercial", "Investment prices", "capex.battery_replacement_frac", "Battery replacements", "% of the gross price", "pct"],
+  ["commercial", "Lifetimes", "finance.pv_life_yr", "PV life", "years; the battery study's horizon", "num"],
+  ["commercial", "Lifetimes", "finance.battery_life_yr", "Battery life", "years", "num"],
+  ["commercial", "Ancillary services", "ancillary.rate_per_kw_year", "Revenue rate", "per reserved kW and year", "num"],
+  ["subsidies", "Voltiris modules", "subsidies.pv.mode", "Mode", "", "select:percent|fixed|threshold"],
+  ["subsidies", "Voltiris modules", "subsidies.pv.frac", "Share", "%", "pct"],
+  ["subsidies", "Voltiris modules", "subsidies.pv.amount", "Amount", "fixed mode", "num"],
+  ["subsidies", "Battery", "subsidies.battery.mode", "Mode", "", "select:percent|fixed|threshold"],
+  ["subsidies", "Battery", "subsidies.battery.frac", "Share", "%", "pct"],
+  ["subsidies", "Battery", "subsidies.battery.amount", "Amount", "fixed mode", "num"],
+  ["subsidies", "Battery", "subsidies.battery.threshold_mode", "Threshold size from", "", "select:ocan|manual"],
+  ["subsidies", "Battery", "subsidies.battery.threshold_kwh", "Threshold size", "kWh (manual)", "num"],
+  ["subsidies", "Battery", "subsidies.battery.ocan_factor", "OCAN factor", "kWh per daily kWh of load", "num"],
+  ["ems", "Costs", "ems.fixed_per_year", "Fixed cost", "per year", "num"],
+  ["ems", "Costs", "ems.capex", "Hardware", "once, with the battery", "num"],
+  ["ems", "Fees", "ems.savings_fee_pct.voltiris", "On the bill saving, Voltiris", "%", "pct"],
+  ["ems", "Fees", "ems.savings_fee_pct.external", "On the bill saving, external", "%", "pct"],
+  ["ems", "Fees", "ems.ancillary_fee_pct.voltiris", "On the ancillary revenue, Voltiris", "%", "pct"],
+  ["ems", "Fees", "ems.ancillary_fee_pct.external", "On the ancillary revenue, external", "%", "pct"],
+].map(([page, group, path, label, unit, kind]) => ({ page, group, path, label, unit, kind }));
 
 function shown(f, v) {
   if (v === undefined || v === null) return "";
@@ -510,7 +774,7 @@ function parsed(f, text) {
 function currentOverrides() {
   let json = {};
   const text = $("jsonOverrides").value.trim();
-  if (text) { try { json = JSON.parse(text); $("jsonError").textContent = ""; } catch (e) { $("jsonError").textContent = "Not valid JSON: " + e.message; } }
+  if (text) { try { json = JSON.parse(text); $("jsonError").textContent = ""; } catch (e) { $("jsonError").textContent = "Not valid JSON in the other overrides: " + e.message; } }
   const fields = {};
   Object.entries(S.fieldValues).forEach(([p, v]) => setPath(fields, p, v));
   return deepMerge(json, fields);
@@ -518,13 +782,13 @@ function currentOverrides() {
 
 function renderKeyParams() {
   const d = S.params.defaults;
-  ["voltiris", "battery"].forEach((block) => {
-    const box = $("kp-" + block), groups = {};
-    KEY_FIELDS.filter((f) => f.block === block && getPath(d, f.path) !== undefined)
+  ["voltiris", "battery", "reserve", "commercial", "subsidies", "ems"].forEach((page) => {
+    const box = $("kp-" + page), groups = {};
+    KEY_FIELDS.filter((f) => f.page === page && getPath(d, f.path) !== undefined)
       .forEach((f) => (groups[f.group] = groups[f.group] || []).push(f));
     box.innerHTML = "";
     Object.entries(groups).forEach(([group, fields]) => {
-      const g = el("div", { class: "pgroup" }, `<h3>${esc(group)} <span class="muted">${esc(cur())}</span></h3>`);
+      const g = el("div", { class: group ? "pgroup" : "pgroup bare" }, group ? `<h3>${esc(group)}</h3>` : "");
       fields.forEach((f) => {
         const def = getPath(d, f.path), changed = f.path in S.fieldValues;
         const r = el("div", { class: "prow" + (f.kind === "tiers" ? " wide" : "") + (changed ? " changed" : "") });
@@ -555,16 +819,45 @@ function renderKeyParams() {
   });
 }
 
+// what 100 kWh bought gives the optimiser, from the parameters in force (the rule of elements/battery/tech.py)
+function renderBatteryLive() {
+  const e = S.params && S.params.effective;
+  if (!e || !e.tech || !e.tech.battery) return;
+  const b = e.tech.battery, anc = e.ancillary || {}, r = anc.reserve || { mode: "percent", frac: 0 }, rate = anc.rate_per_kw_year || 0;
+  const size = 100, window = size * (b.soc_max - b.soc_min);
+  const reserved = r.mode === "fixed_kwh" ? Math.min(r.kwh || 0, window) : window * (r.frac || 0);
+  const power = size * b.c_rate, reservedKw = window > 0 ? (power * reserved) / window : 0;
+  const pct = (v, total) => `${Math.max(0, (v / total) * 100)}%`;
+  const below = b.soc_min * size, above = (1 - b.soc_max) * size;
+  $("pvBattery").innerHTML = `
+    <div class="bbar"><div class="label">Energy: 100 kWh bought</div><div class="bar">
+      <div class="seg-off" style="width:${pct(below, size)}">${fmt(below, 0)}</div>
+      ${reserved > 0 ? `<div class="seg-res" style="width:${pct(reserved, size)}">reserve ${fmt(reserved, 0)}</div>` : ""}
+      <div class="seg-use" style="width:${pct(window - reserved, size)}">optimiser ${fmt(window - reserved, 0)} kWh</div>
+      <div class="seg-off" style="width:${pct(above, size)}">${fmt(above, 0)}</div></div></div>
+    <div class="bbar"><div class="label">Power: ${fmt(power, 0)} kW (C-rate ${fmt(b.c_rate, 2)})</div><div class="bar">
+      ${reservedKw > 0 ? `<div class="seg-res" style="width:${pct(reservedKw, power)}">reserve ${fmt(reservedKw, 1)} kW</div>` : ""}
+      <div class="seg-use" style="width:${pct(power - reservedKw, power)}">optimiser ${fmt(power - reservedKw, 1)} kW</div></div></div>`;
+  tiles("pvBatteryTiles", [
+    ["Round trip", `${fmt(b.efficiency_store * b.efficiency_dispatch * 100, 1)} %`],
+    ["Self-discharge", `${fmt(b.self_discharge_per_day * 100, 2)} %/day`],
+    ["Reserve revenue", reservedKw > 0 ? `${money(reservedKw * rate)}/yr` : "off", reservedKw > 0 ? `${fmt(reservedKw, 1)} kW × ${fmt(rate, 1)} per kW` : "no reserve"],
+  ]);
+}
+
 async function loadParams() {
   if (!$("mUtility").value) return;
   const c = collectCase();
   try {
-    S.params = await api("/api/parameters", { run_type: RT().id, market: c.market, business_model: c.business_model, overrides: c.overrides });
+    S.params = await api("/api/parameters", { run_type: RT().id, market: c.market,
+      business_model: c.general.commercial.business_model, overrides: c.overrides });
   } catch (e) { $("paramsError").textContent = e.message; return; }
   $("paramsError").textContent = S.params.error ? "These overrides cannot be applied, the file values are shown: " + S.params.error : "";
-  $("mCurrency").textContent = `Money is in ${S.params.currency}. Shared prices (battery, PV, EMS, EaaS) are converted from CHF/EUR with params/fx.json.`;
+  $("mCurrency").textContent = `Money is in ${S.params.currency} for the whole run. Shared prices (battery, PV, EMS, EaaS) are converted from CHF/EUR with the exchange rate file.`;
+  ["curCommercial", "curSubsidies", "curEms"].forEach((id) => ($(id).textContent = `in ${S.params.currency}`));
   renderKeyParams();
   renderParamBlocks(c.overrides);
+  renderBatteryLive();
   const regimes = getPath(S.params.effective, "tariff.regimes") || ["default"];
   const keep = S.manualRegime || $("sRegime").value;
   fillSelect("sRegime", regimes.map((r) => [r, r]));
@@ -587,11 +880,21 @@ function stripNotes(o) {
   return o;
 }
 
-// preview: the setup check, without solving
+// -- battery: sizing ----------------------------------------------------------------------------------------------------
+const OBJECTIVE_HINT = {
+  profit: "The highest lifetime profit (yearly value × battery life − investment) among the sizes that pay back within the battery life; if none does, the shortest payback.",
+  payback: "The shortest payback among the sizes tested.",
+  custom: "The tested size closest to the custom size, which is added to the list.",
+};
+function objectiveChanged() {
+  const o = document.querySelector("input[name=objective]:checked").value;
+  $("objHint").textContent = OBJECTIVE_HINT[o];
+  $("customRow").hidden = o !== "custom";
+}
 ["sModules", "sImport", "sExport", "sRegime", "sAncillary", "zCustom", "zSweep", "zFine", "zWindow", "zCap"].forEach((id) =>
-  $(id).addEventListener("change", () => { S.preview = null; updateTop(); if (id === "sModules") drawWorkbookWeek();
-    if (id === "sAncillary") loadParamsSoon(); checkSetupSoon(); }));
-document.querySelectorAll("input[name=regimeMode], input[name=objective]").forEach((r) => r.addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
+  $(id).addEventListener("change", () => { S.preview = null; updateTop(); if (id === "sAncillary") loadParamsSoon(); checkSetupSoon(); }));
+document.querySelectorAll("input[name=regimeMode]").forEach((r) => r.addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
+document.querySelectorAll("input[name=objective]").forEach((r) => r.addEventListener("change", () => { objectiveChanged(); S.preview = null; checkSetupSoon(); }));
 $("checkSetup").addEventListener("click", () => checkSetup(false));
 $("zDefault").addEventListener("click", () => { $("zSweep").value = RT().sizing_defaults.sweep_kwh.join(", "); S.preview = null; checkSetupSoon(); });
 const checkSetupSoon = debounce(() => checkSetup(true), 500);
@@ -607,8 +910,7 @@ function rangeList() {
 function rangeInfo() {
   const r = rangeList();
   if (r.error) { $("gInfo").textContent = r.error; return r; }
-  const l = r.list, show = l.length <= 8 ? l.map((x) => fmt(x)).join(", ") : `${l.slice(0, 4).map((x) => fmt(x)).join(", ")}, … ${fmt(l[l.length - 1])}`;
-  $("gInfo").textContent = `${l.length} size${l.length > 1 ? "s" : ""}: ${show} kWh (about ${fmt(l.length * 6 / 60, 1)} min to solve)`;
+  $("gInfo").textContent = `${r.list.length} size${r.list.length > 1 ? "s" : ""}, about ${fmt(r.list.length * 6 / 60, 1)} min to solve`;
   return r;
 }
 ["gFrom", "gTo", "gStep"].forEach((id) => $(id).addEventListener("input", rangeInfo));
@@ -624,15 +926,20 @@ $("gReplace").addEventListener("click", () => applyRange(false));
 $("gAdd").addEventListener("click", () => applyRange(true));
 rangeInfo();
 
+// -- the setup check (no solve) ---------------------------------------------------------------------------------------
+// the blocks that still need their input file (the grid's is optional: the setup check says if its tariff needs it)
+function missingFiles() {
+  return chosenBlocks().filter((id) => isBuilt(id) && hasData(id) && id !== "grid" && !S.data[id].path);
+}
+
 async function checkSetup(quiet) {
-  const visible = $("step-params").classList.contains("active");
-  if (quiet && (!visible || S.preview)) return;
-  if (!S.runType) { if (!quiet) toast("No model can run the system of step 1 yet.", true); return; }
-  const c = collectCase();
-  if (!c.input_file) { if (!quiet) toast("Choose the workbook in step 2 first.", true); return; }
+  if (quiet && (!["battery", "market", "commercial", "subsidies", "run"].includes(S.step) || S.preview)) return;
+  if (!S.runType) { if (!quiet) toast("No model can run the system of the System page yet.", true); return; }
+  const missing = missingFiles();
+  if (missing.length) { if (!quiet) toast(`Give the input file of: ${missing.map((b) => blockInfo(b).name).join(", ")}.`, true); return; }
   $("checkInfo").textContent = "Building the run context…";
   try {
-    S.preview = await api("/api/preview", { case: c });
+    S.preview = await api("/api/preview", { case: collectCase() });
     $("checkInfo").textContent = "Setup checked: nothing has been solved yet.";
     renderPreview();
   } catch (e) {
@@ -643,51 +950,35 @@ async function checkSetup(quiet) {
 }
 
 function renderPreview() {
-  const p = S.preview, s = p.site, b = p.battery, m = p.money, t = p.tariff, k = b.per_100_kwh;
-  $("previewSite").hidden = false;
+  const p = S.preview, s = p.site, m = p.money, t = p.tariff;
+  document.querySelectorAll(".pv-part").forEach((x) => (x.hidden = false));
   tiles("pvSite", [
     ["Yearly load", `${fmt(s.load_mwh, 0)} MWh`, `peak ${fmt(s.load_peak_kw, 0)} kW`],
     ["Voltiris PV", `${fmt(s.voltiris_kwp, 1)} kWp`, `${fmt(s.modules)} modules · ${fmt(s.voltiris_mwh, 1)} MWh/yr`],
-    ["Existing PV", `${fmt(s.existing_mwh, 1)} MWh`, has("existing_pv") ? "added to the Voltiris PV" : "not in the system"],
+    ["Existing PV", `${fmt(s.existing_mwh, 1)} MWh`, has("existing_pv") ? "with the Voltiris PV, behind one meter" : "not in the system"],
     ["PV surplus without battery", `${fmt(s.pv_surplus_mwh, 1)} MWh`, `of ${fmt(s.pv_mwh, 1)} MWh PV`],
-    ["Grid import limit", `${fmt(p.grid.import_max_kw, 0)} kW`, p.grid.import_auto ? "automatic" : "from the case"],
-    ["Grid export limit", `${fmt(p.grid.export_max_kw, 0)} kW`, p.grid.export_auto ? "automatic" : "from the case"],
-  ]);
-  const pct = (v, total) => `${Math.max(0, (v / total) * 100)}%`;
-  const below = b.soc_min * 100, above = (1 - b.soc_max) * 100;
-  $("pvBattery").innerHTML = `
-    <div class="bbar"><div class="label">Energy: 100 kWh bought</div><div class="bar">
-      <div class="seg-off" style="width:${pct(below, 100)}">${fmt(below, 0)} kWh</div>
-      ${k.reserved_kwh > 0 ? `<div class="seg-res" style="width:${pct(k.reserved_kwh, 100)}">reserve ${fmt(k.reserved_kwh, 0)} kWh</div>` : ""}
-      <div class="seg-use" style="width:${pct(k.dispatch_kwh, 100)}">optimiser ${fmt(k.dispatch_kwh, 0)} kWh</div>
-      <div class="seg-off" style="width:${pct(above, 100)}">${fmt(above, 0)} kWh</div></div></div>
-    <div class="bbar"><div class="label">Power: ${fmt(k.power_kw, 0)} kW (C-rate ${fmt(b.c_rate, 2)})</div><div class="bar">
-      ${k.reserved_kw > 0 ? `<div class="seg-res" style="width:${pct(k.reserved_kw, k.power_kw)}">reserve ${fmt(k.reserved_kw, 1)} kW</div>` : ""}
-      <div class="seg-use" style="width:${pct(k.dispatch_kw, k.power_kw)}">optimiser ${fmt(k.dispatch_kw, 1)} kW</div></div></div>`;
-  tiles("pvBatteryTiles", [
-    ["State-of-charge window", `${fmt(b.soc_min * 100, 0)}–${fmt(b.soc_max * 100, 0)} %`, "striped: never used"],
-    ["Round trip", `${fmt(b.round_trip * 100, 1)} %`, `charge ${fmt(b.charge_efficiency * 100, 1)} % · discharge ${fmt(b.discharge_efficiency * 100, 1)} %`],
-    ["Self-discharge", `${fmt(b.self_discharge_per_day * 100, 2)} %/day`],
-    p.ancillary.enabled
-      ? ["Ancillary revenue", `${money(k.ancillary_revenue)}/yr`, `per 100 kWh: ${fmt(k.reserved_kw, 1)} kW × ${fmt(p.ancillary.rate_per_kw_year, 1)}`, "accent"]
-      : ["Ancillary services", "off", "whole window and power to the optimiser"],
+    ["Grid import limit", `${fmt(p.grid.import_max_kw, 0)} kW`, p.grid.import_auto ? "automatic" : "from the Grid page"],
+    ["Grid export limit", `${fmt(p.grid.export_max_kw, 0)} kW`, p.grid.export_auto ? "automatic" : "from the Grid page"],
+    ["One-meter rules", `${fmt(p.meter.export_pays_more_h, 0)} h`, `exporting pays more · ${fmt(p.meter.negative_price_h, 1)} h negative price`],
   ]);
   tiles("pvMoney", [
-    ["Battery price", `${money(m.price_per_kwh_at["100"])}/kWh`, `at 100 kWh · ${money(m.price_per_kwh_at["1000"])}/kWh at 1,000 kWh`],
-    ["100 kWh after subsidy", money(m.price_after_subsidy_100), `subsidy: ${m.subsidy_mode}${m.subsidy_frac ? ` ${fmt(m.subsidy_frac * 100, 0)} %` : ""}`],
-    m.subsidy_mode === "threshold" && ["Subsidised maximum", `${fmt(m.subsidy_threshold_kwh, 0)} kWh`, "OCAN: yearly load / 365 × factor"],
-    ["EMS", `${money(m.ems_fixed_per_year)}/yr`, `hardware ${money(m.ems_hardware)} once`],
-    ["Lifetimes", `${fmt(m.battery_life_yr)} / ${fmt(m.pv_life_yr)} yr`, "battery / PV"],
+    ["Business model", t.business_model === "eaas" ? (t.eaas ? "EaaS" : "EaaS (inactive: 0 modules)") : "Direct sales"],
+    has("voltiris") && ["Voltiris modules", money(m.pv_capex), `${fmt(s.modules)} modules, before subsidy`],
+    has("battery") && ["Battery price", `${money(m.price_per_kwh_at["100"])}/kWh`, `at 100 kWh · ${money(m.price_per_kwh_at["1000"])}/kWh at 1,000 kWh`],
+    ["Lifetimes", `${fmt(m.pv_life_yr)} / ${fmt(m.battery_life_yr)} yr`, "PV (the study's horizon) / battery"],
+  ]);
+  tiles("pvSubsidy", [
+    has("battery") && ["100 kWh of battery after subsidy", money(m.price_after_subsidy_100), `${m.subsidy_mode}${m.subsidy_frac ? ` ${fmt(m.subsidy_frac * 100, 0)} %` : ""}`],
+    has("battery") && m.subsidy_mode === "threshold" && ["Subsidised maximum", `${fmt(m.subsidy_threshold_kwh, 0)} kWh`, "OCAN: yearly load / 365 × factor"],
+    has("voltiris") && ["Voltiris modules", `${m.pv_subsidy_mode}${m.pv_subsidy_frac ? ` ${fmt(m.pv_subsidy_frac * 100, 0)} %` : " 0 %"}`],
   ]);
   const r = p.regime;
   tiles("pvTariff", [
-    ["Business model", t.business_model === "eaas" ? (t.eaas ? "EaaS" : "EaaS (inactive: 0 modules)") : "Direct sales"],
-    ["Starting regime", r.start, r.dup_h != null ? `DUP ${fmt(r.dup_h, 0)} h without battery · threshold ${fmt(t.threshold_h, 0)} h` : (r.auto ? "the tariff has no regime rule" : "fixed by the case")],
-    ["Regimes", t.regimes.join(" / "), t.has_rule ? "chosen by the DUP rule" : "chosen by the case"],
+    ["Starting regime", r.start, r.dup_h != null ? `DUP ${fmt(r.dup_h, 0)} h without battery · threshold ${fmt(t.threshold_h, 0)} h` : (r.auto ? "the tariff has no regime rule" : "fixed on the Grid page")],
+    ["Regimes", t.regimes.join(" / "), t.has_rule ? "chosen by the DUP rule" : "chosen on the Grid page"],
     ["Energy price", t.uses_day_ahead ? "day-ahead based" : "fixed by period", `export value ${fmt(t.export_value_mean, 4)} ${cur()}/kWh on average`],
     ["Capacity charges", t.capacity_charges.length ? t.capacity_charges.join(", ") : "none"],
     ["Battery export", t.battery_export === "pv_only" ? "PV energy only" : "any energy"],
-    ["One-meter rules", `${fmt(p.meter.export_pays_more_h, 0)} h`, `exporting pays more · ${fmt(p.meter.negative_price_h, 1)} h negative price`],
   ]);
   $("pvPrices").innerHTML = `<tr><th>Import price, ${cur()}/kWh</th><th>Mean</th><th>Weighted by load</th><th>Lowest</th><th>Highest</th></tr>` +
     Object.entries(t.import_price).map(([reg, v]) => `<tr${reg === r.start ? ' class="hl"' : ""}><td>Regime ${esc(reg)}</td><td>${fmt(v.mean, 4)}</td><td>${fmt(v.weighted, 4)}</td><td>${fmt(v.min, 4)}</td><td>${fmt(v.max, 4)}</td></tr>`).join("");
@@ -699,14 +990,14 @@ function renderPreview() {
     (t.has_rule ? ` Sizes whose DUP crosses ${fmt(t.threshold_h)} h are solved twice more.` : "");
 }
 
-// -- step 5: run ----------------------------------------------------------------------------------------------------
+// -- run ------------------------------------------------------------------------------------------------------------
 $("runBtn").addEventListener("click", async () => {
-  if (!S.runType) return toast("No model can run the system of step 1 yet.", true);
-  const c = collectCase();
-  if (!c.input_file) return toast("Choose the workbook in step 2 first.", true);
-  if ($("jsonError").textContent) return toast("Fix the JSON overrides in step 4 first.", true);
+  if (!S.runType) return toast("No model can run the system of the System page yet.", true);
+  const missing = missingFiles();
+  if (missing.length) { toast(`Give the input file of: ${missing.map((b) => blockInfo(b).name).join(", ")}.`, true); return showStep(missing[0]); }
+  if ($("jsonError").textContent) return toast("Fix the JSON overrides first.", true);
   try {
-    const r = await api("/api/run", { case: c, output_dir: $("rFolder").value.trim() });
+    const r = await api("/api/run", { case: collectCase(), output_dir: $("rFolder").value.trim() });
     $("runInfo").textContent = `Results will be written to ${r.output_dir}`;
     $("runCard").hidden = false; $("runLog").textContent = ""; $("runError").textContent = "";
     $("runSteps").innerHTML = S.options.run_types[r.run_type].stages.map((s) =>
@@ -743,14 +1034,13 @@ async function poll() {
   if (st.state === "done") {
     S.results = await api("/api/results");
     updateTop();
-    document.querySelector('#steps button[data-step="results"]').classList.add("done");
     toast(`Done in ${fmt(st.elapsed, 0)} s`);
     showStep("results");
     renderResults();
   }
 }
 
-// -- step 6: results ------------------------------------------------------------------------------------------------
+// -- results --------------------------------------------------------------------------------------------------------
 function renderTable(id, data, opts = {}) {
   const plainIndex = data.index.every((v, i) => v === i);
   const head = (plainIndex ? [] : [opts.indexLabel || ""]).concat(data.columns.map((c) => (opts.rename || {})[c] || c));
@@ -766,7 +1056,7 @@ function renderResults() {
   const R = S.results;
   document.querySelectorAll(".res-body").forEach((b) => (b.hidden = b.id !== "res-" + R.view));
   $("resFilesCard").hidden = false;
-  $("resFiles").textContent = `Written to ${R.files.folder}`;
+  $("resFiles").textContent = `Written to ${R.files.folder} · model: ${S.options.run_types[R.run_type].name}`;
   $("resSummary").innerHTML = `<tr><th>Field</th><th>Value</th></tr>` + Object.entries(R.summary).filter(([k]) => k !== "sweep")
     .map(([k, v]) => `<tr><td><code>${k}</code></td><td>${esc(typeof v === "number" ? auto(v) : v === null ? "–" : String(v))}</td></tr>`).join("");
   if (R.view === "battery_study") renderBatteryStudy();
@@ -876,8 +1166,8 @@ function renderWhy() {
   const notes = [];
   const largest = rows[rows.length - 1].size, smallest = rows[0].size;
   if (ch.cap && chosen.size === ch.cap) notes.push(`The list stopped at ${fmt(ch.cap)} kWh, the largest subsidised size (OCAN rule), and that is the size chosen.`);
-  else if (ch.objective !== "custom" && chosen.size === largest && rows.length > 1) notes.push(`The chosen size is the largest one tested: a larger battery might do better. Extend the list in step 4 to check.`);
-  else if (ch.objective !== "custom" && chosen.size === smallest && rows.length > 1 && chosen.value > 0) notes.push(`The chosen size is the smallest one tested: a smaller battery might do better. Extend the list in step 4 to check.`);
+  else if (ch.objective !== "custom" && chosen.size === largest && rows.length > 1) notes.push(`The chosen size is the largest one tested: a larger battery might do better. Extend the list on the Battery page to check.`);
+  else if (ch.objective !== "custom" && chosen.size === smallest && rows.length > 1 && chosen.value > 0) notes.push(`The chosen size is the smallest one tested: a smaller battery might do better. Extend the list on the Battery page to check.`);
   const fine = rows.filter((r) => !ch.first_stage.includes(r.size)).map((r) => fmt(r.size));
   if (fine.length) notes.push(`${fine.join(", ")} kWh came from the fine grid, solved after the first list.`);
   if (chosen.regime !== s.regime_no_battery) notes.push(`This size is billed under regime ${chosen.regime}, not the starting regime ${s.regime_no_battery}: its hours of use crossed the threshold${chosen.lock ? `, and the DUP was held in regime ${chosen.lock}` : ""}.`);
@@ -886,15 +1176,13 @@ function renderWhy() {
     rows.map((r) => `<tr${r === chosen ? ' class="hl"' : ""}><td>${fmt(r.size)}</td><td>${fmt(r.value)}</td><td>${fmt(r.inv)}</td>
       <td>${pbText(r)}</td><td class="${pays(r) ? "yes" : "no"}">${pays(r) ? "yes" : "no"}</td><td>${fmt(r.profit)}</td>
       <td>${esc(r.regime)}${r.lock ? ` (DUP held in ${esc(r.lock)})` : ""}</td><td>${r === chosen ? '<span class="tag">chosen</span>' : ""}</td></tr>`).join("");
-  $("resWhyNote").textContent = `Payback and lifetime profit use the battery life of ${fmt(life)} years (step 4, battery, Lifetimes). Yearly value = bill saving + ancillary revenue − EMS costs; investment = battery after subsidy + EMS hardware.`;
+  $("resWhyNote").textContent = `Payback and lifetime profit use the battery life of ${fmt(life)} years (Commercial page, Lifetimes). Yearly value = bill saving + ancillary revenue − EMS costs; investment = battery after subsidy + EMS hardware.`;
 }
 
 function drawYear() {
   const d = S.results.daily, n = d.load.length;
   const t0 = new Date(d.start + "Z").getTime();
   const labels = Array.from({ length: n }, (_, i) => new Date(t0 + i * 864e5).toISOString().slice(0, 10));
-  const monthTicks = { autoSkip: false, maxRotation: 0,
-    callback(value) { const l = this.getLabelForValue(value); return l.endsWith("-01") ? MONTHS[Number(l.slice(5, 7)) - 1] : ""; } };
   const x = { ticks: monthTicks, grid: { display: false } };
   chart("resYear", { type: "line", data: { labels, datasets: [
     line("Load", d.load, COLORS.load), line("PV", d.pv, COLORS.pv),
@@ -940,14 +1228,18 @@ $("openFolder").addEventListener("click", async () => {
 // -- start ----------------------------------------------------------------------------------------------------------
 (async function init() {
   try { S.options = await api("/api/options"); } catch (e) { return toast("The server does not answer: " + e.message, true); }
+  S.pendingStep = decodeURIComponent(location.hash.slice(1)) || null;
+  Object.keys(S.options.block_columns).forEach((id) => (S.data[id] = { path: "", columns: {}, info: null }));
+  makeViewer($("viewer-all"), "all", () => curveSeries(chosenBlocks().filter(hasData)), true);
   fillSelect("caseSelect", S.options.cases.map((c) => [c.path, c.name]), "— choose —");
-  fillSelect("wbSelect", S.options.workbooks.map((w) => [w.path, w.name]), "— choose —");
   fillSelect("presetSelect", S.options.presets.map((p) => [p.id, p.name]), "— your own system —");
-  fillSelect("mBusiness", RT().business_models.map((b) => [b, b === "eaas" ? "EaaS (Voltiris owns the modules)" : "Direct sales (grower buys the modules)"]));
+  fillSelect("mBusiness", RT().business_models.map((b) => [b, b === "eaas" ? "EaaS: Voltiris owns them" : "Direct sales: the grower buys them"]));
   setMarket();
   $("zSweep").placeholder = RT().sizing_defaults.sweep_kwh.join(", ");
-  if (S.options.cases.length) {
-    $("caseSelect").value = S.options.cases[0].path;
+  objectiveChanged();
+  const first = S.options.cases.find((c) => c.name.startsWith("blocks/")) || S.options.cases[0];
+  if (first) {
+    $("caseSelect").value = first.path;
     $("caseLoad").click();
   } else {
     $("caseNew").click();

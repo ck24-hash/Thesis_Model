@@ -8,19 +8,28 @@ It opens http://127.0.0.1:8775 (`--port` to change it, `--no-browser` to only pr
 window open while you use it; Ctrl+C stops it. It needs the models' Python packages
 (`elements/battery_reference/requirements.txt`).
 
-## Steps
+## Pages
 
-1. **System**: load a case file, pick a scenario preset (`common/scenarios.json`, the thesis matrix) or tick the
-   blocks yourself (`common/blocks.json`). The blocks chosen pick the model that runs them (the run type). A system no
-   model can run yet is shown with the reason, and cannot be run.
-2. **Input data**: the workbook, its time step, and its columns. A workbook with a coarser step than 15 min (hourly,
-   30 min) is converted when it is read (`common/timeseries.py`): kW, W and prices are repeated in each quarter hour,
-   kWh per step is divided. The converted file goes to `interface/app_data/converted/` and the run uses it.
-3. **Market**: country, region, utility and tariff year.
-4. **Parameters**: one card per chosen block, then the JSON overrides, the setup check (nothing is solved) and every
-   parameter used.
-5. **Run**: writes `case_<tag>.json` to the output folder and runs it.
-6. **Results**: the run type's results and the files.
+1. **System**: a drawing of the greenhouse with every block around it; click a block to add or remove it (flows light
+   up by carrier; dashed = not built yet). Or load a case file or a scenario preset (`common/scenarios.json`, the
+   thesis matrix), and set the data year. The blocks chosen pick the model that runs them (the run type); when two
+   fit, choose one. A system no model can run yet is shown with the reason, and cannot be run.
+   - **One page per chosen block**, under System, with its technical side only:
+     - Greenhouse demand, Voltiris, Existing PV, Grid: the block's own input file (pick, upload or type a path; its time
+       step, columns, and its curves by year, month or week). A coarser step (hourly, 30 min) is shown as converted;
+       the system converts it when it runs (`common/timeseries.py`).
+     - Voltiris: modules and module power. Grid: connection limits, regime. Battery: technology with what 100 kWh
+       gives the optimiser (live), the grid services reserve, the sizing.
+     - A block not built yet: what it will do; the system cannot run.
+2. **Input data**: every chosen block's file and status, and all curves on one chart, by year (daily means), month or
+   week (hourly means), each curve switchable.
+3. **General**, the items not tied to one block (`general/`): Market (country, region, utility; the run's currency and
+   tariff), Commercial (business model, prices, lifetimes, ancillary rate), Subsidies, EMS. Shown when they apply.
+4. **Run**: the setup check (nothing is solved), the run with its progress and log, other overrides (JSON), the case
+   file, every parameter used. It writes `case_<tag>.json` (system format) to the output folder and runs it.
+5. **Results**: the run type's results and the files.
+
+The address keeps the page (`#voltiris`, `#run`), so a refresh opens the same page.
 
 ## Run types
 
@@ -32,12 +41,12 @@ battery, with or without Voltiris and existing PV) and the same case file:
 
 - `blocks` (`system_study.py`, the default): the blocks in `elements/` and the engine in `system/`, as
   `python system/run_case.py case_<tag>.json` runs them.
-- `battery_study` (`battery_study.py`): the reference model `elements/battery_reference`, exactly as
-  `python elements/battery_reference/run_case.py case_<tag>.json` would. The case file's extra `system` key is
-  ignored by that model; `use_existing_pv` is true when the existing PV block is chosen.
+- `battery_study` (`battery_study.py`): the reference model `elements/battery_reference`. It reads one workbook, so the
+  run writes the blocks' inputs as `input_<tag>.xlsx` in its format and the case as `case_<tag>_reference.json`, and
+  runs that exactly as `python elements/battery_reference/run_case.py case_<tag>_reference.json` would.
 
-Both write the same tables, drawn by the same results panel (`battery_view.py`). A case file without `system` (an
-older battery case) opens with the battery study's blocks.
+Both write the same tables, drawn by the same results panel (`battery_view.py`). A reference case file (one
+workbook, no `blocks`) opens with every block reading that workbook.
 
 The battery model has no ancillary switch of its own: "off" in the battery card writes
 `{"ancillary": {"rate_per_kw_year": 0, "reserve": {"mode": "percent", "frac": 0}}}` into the case file's overrides.
@@ -47,10 +56,10 @@ The battery model has no ancillary switch of its own: "off" in the battery card 
 ```
 app.py              starts the server and opens the browser
 server.py           local web server (standard library), 127.0.0.1 only
-api.py              generic: options, case files, workbook and time step, run state
+api.py              generic: options, case files, each block's input file and its time step, run state
 tables.py           JSON-ready values, the workbook kept in memory
 adapters/           one module per run type
 web/                the page: index.html, app.js, style.css, chart.umd.js (Chart.js 4.4.1, MIT licence)
-app_data/           uploads and converted workbooks (created when used)
+app_data/           uploads (created when used)
 app_runs/<tag>/     default output folders (created when used)
 ```

@@ -20,8 +20,8 @@ The folder was extracted from the Pre-feasibility repo (`Voltiris/prefeasibility
 battery model was removed (see section 8). The goal is to build on it with other blocks into a larger model.
 
 Since 28 Oct 2026 this model is the frozen reference (`elements/battery_reference`). It has been split into blocks
-(`elements/greenhouse`, `voltiris`, `existing_pv`, `grid`, `battery`) and an engine (`system/`) that give the same
-results; new work goes there (`PLAN.md`, `elements/README.md`, `system/README.md`). This file still describes the
+(`elements/greenhouse`, `voltiris`, `existing_pv`, `grid`, `battery`), general items (`general/commercial`,
+`subsidies`, `ems`) and an engine (`system/`) that give the same results; new work goes there (`PLAN.md`, `elements/README.md`, `system/README.md`). This file still describes the
 reference, and its rules (section 5) hold for the blocks too.
 
 ## 2. Folder layout
@@ -189,20 +189,22 @@ Added 28 Oct 2026 as `models/battery_interface/`; moved the same day to `interfa
 battery model (details in `interface/README.md`). It only imports `elements/battery_reference` and changes nothing in it.
 
 - `app.py` starts a local server (Python standard library, 127.0.0.1 only, port 8775 or the next free one) and
-  opens the browser. `server.py` serves `web/` and a small JSON API; `api.py` is generic (blocks, presets, workbook
-  and time step, run state); `adapters/battery_study.py` is the only file that calls the model:
+  opens the browser. `server.py` serves `web/` and a small JSON API; `api.py` is generic (blocks, presets, each
+  block's input file and time step, run state); `adapters/battery_study.py` is the only file that calls this model:
   `run_case.load_case`, `setup_from_case`, `pipeline.run`, `write_results`, plus read-only previews
   (`parameters.load`, `inputs.from_frame`, `Setup`, `dispatch.grid_limits_kw`, `dispatch.exclusive_steps`,
-  `pipeline.choose_regime`).
-- Six steps: system (scenario preset or own blocks; the blocks pick the run type), input data (workbook, time step
-  with conversion of coarser data to 15 min, column mapping, charts), market, parameters (one card per block: site,
-  Voltiris, grid, battery with sizing; JSON overrides; setup check without solving), run (live log and progress),
-  results (why this size, value split, sweep, with and without battery, bills by component, the whole year per day,
-  dispatch per week, monthly tables, payback, downloads).
+  `pipeline.choose_regime`). `adapters/system_study.py` runs the blocks.
+- Pages: System (a clickable drawing of the greenhouse and its blocks, presets, the model when two fit, data year),
+  one page per chosen block (its own input file, curves by year, month or week, its technical settings), Input data
+  (every curve together), General (Market, Commercial, Subsidies, EMS), Run (setup check, case file, live log and
+  progress, JSON overrides), Results (why this size, value split, sweep, with and without battery, bills by component,
+  the whole year per day, dispatch per week, monthly tables, payback, downloads).
 - The ancillary switch is on by default; off writes the overrides of 4.6 into the case file, and a case with those
   overrides reopens with the switch off.
-- Each run writes `case_<tag>.json` (with an extra `system` key the model ignores), `summary_<tag>.json`,
-  `results_<tag>.xlsx` to `interface/app_runs/<tag>/`; uploads and converted workbooks go to `interface/app_data/`.
+- The page writes system cases (one input file per block). For this model a run writes the blocks' inputs as one
+  workbook `input_<tag>.xlsx` and the case in its format `case_<tag>_reference.json`, then runs those. Each run
+  writes `case_<tag>.json`, `summary_<tag>.json`, `results_<tag>.xlsx` to `interface/app_runs/<tag>/`; uploads go
+  to `interface/app_data/uploads/`.
   On the CH, NL and FR examples the summary and every result sheet are identical to the old interface's (checked
   28 Oct 2026).
 - Charts use Chart.js 4.4.1 stored in `web/chart.umd.js`, so the page works offline.

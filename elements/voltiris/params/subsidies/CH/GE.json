@@ -1,9 +1,0 @@
-{
-  "_about": "Subsidies for a site in the canton of Geneva. Modes: percent (frac x gross), fixed (gross - amount), threshold (frac up to the threshold size, the discount capped at frac x cost of the threshold size above it). [voltiris part of the reference file params/subsidies/CH/GE.json]",
-  "pv": {
-    "mode": "percent",
-    "frac": 0.0,
-    "amount": 0,
-    "threshold_modules": null
-  }
-}

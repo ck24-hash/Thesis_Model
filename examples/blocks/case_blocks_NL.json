@@ -1,0 +1,41 @@
+{
+  "year": 2026,
+  "market": {
+    "country": "NL",
+    "region": "WestlandInfra",
+    "utility": "MS",
+    "year": 2026
+  },
+  "blocks": {
+    "greenhouse": {
+      "input_file": "greenhouse_load_2026.xlsx"
+    },
+    "voltiris": {
+      "input_file": "voltiris_yield_2026.xlsx",
+      "modules": 500
+    },
+    "grid": {
+      "input_file": "grid_day_ahead_2026.xlsx",
+      "import_max_kw": 750,
+      "export_max_kw": 750,
+      "regime": {
+        "auto": true
+      }
+    },
+    "battery": {
+      "sizing": {
+        "objective": "profit",
+        "sweep_kwh": [
+          100,
+          200
+        ]
+      }
+    }
+  },
+  "general": {
+    "commercial": {
+      "business_model": "direct_sales"
+    }
+  },
+  "tag": "blocks_NL"
+}

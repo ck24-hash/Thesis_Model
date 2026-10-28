@@ -1,7 +1,5 @@
 {
-  "_about": "Ancillary services in the Netherlands: the CH structure, part of the battery is kept out of the dispatch and earns a fixed rate per kW of reserved power.",
-  "rate_per_kw_year": 98.1,
-  "rate_note": "EUR/kW/yr: the CH rate 90 CHF x 1.09; set the country's own rate here when known",
+  "_about": "Ancillary services in the Netherlands: the CH structure, part of the battery is kept out of the dispatch and earns a fixed rate per kW of reserved power. [battery part of the reference file params/ancillary/NL.json: the reserve kept out of the dispatch]",
   "reserve": {
     "mode": "percent",
     "frac": 0.25,

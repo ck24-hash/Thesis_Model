@@ -19,8 +19,8 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 
 POST_ROUTES = {
     "/api/case": lambda body: api.load_case(body["path"]),
-    "/api/workbook": lambda body: api.inspect_workbook(body["path"], int(body["year"]), body.get("columns"),
-                                                       body.get("run_type")),
+    "/api/block-file": lambda body: api.inspect_block(body["block"], body["path"], int(body["year"]),
+                                                      body.get("columns")),
     "/api/parameters": lambda body: api.parameters_for_page(body["run_type"], body["market"],
                                                             body.get("business_model", "direct_sales"),
                                                             body.get("overrides")),

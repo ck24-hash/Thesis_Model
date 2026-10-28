@@ -1,0 +1,5 @@
+{
+  "_about": "Ancillary services in Switzerland: part of the battery is kept out of the dispatch and earns a fixed rate per kW of reserved power. [commercial part of the reference file params/ancillary/CH.json: the revenue rate]",
+  "rate_per_kw_year": 90,
+  "rate_note": "CHF/kW/yr, proxy revenue rate for reserved capacity"
+}

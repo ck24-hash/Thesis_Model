@@ -12,8 +12,9 @@ currency of the whole run.
 
 **Tariff** (`tariffs.py`, the reference model's code unchanged): import price as a sum of components (flat, peak and
 off-peak, season, TURPE slot, day-ahead), capacity charges (monthly peak with or without the annual ratchet, yearly
-peak, TURPE staircase), export price (fixed or day-ahead), regimes (SIG A/B by DUP, TURPE LU/CU). The day-ahead
-column (`Day ahead kWh`, EUR/kWh, role `day_ahead_eur_kwh`) is needed where the tariff uses it (NL, FR).
+peak, TURPE staircase), export price (fixed or day-ahead), regimes (SIG A/B by DUP, TURPE LU/CU). The block's own
+input file, with the day-ahead price (`Day ahead kWh`, EUR/kWh, role `day_ahead_eur_kwh`), is needed only where the
+tariff uses it (NL, FR); a CH case can leave it out.
 
 **Network** (`block.py`): generators `grid_import` (at the regime's price) and `grid_export` (at the export value the
 system gives: the feed-in, or the EaaS value), with limits from the case or automatic (2 x highest load, 1.1 x highest

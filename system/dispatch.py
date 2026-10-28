@@ -3,6 +3,9 @@ chosen block adds its own components on the site's electricity bus, in the batte
 capacity charges and DUP lock. This file adds the rules that join two blocks (from elements/battery_reference
 engine/dispatch.py):
 
+PV on site (Voltiris + existing PV): both are behind the site's one meter and must run, so they are one generator
+`pv` with their summed output, as in the reference model (zero output without either block).
+
 EaaS bounds (Voltiris business model on the grid): exporting saves the EaaS fee on the Voltiris share, so the site
 exports only its PV surplus and imports nothing during one.
 
@@ -27,11 +30,12 @@ import pandas as pd
 import pypsa
 import xarray as xr
 
+from common.network import add_must_run
 from elements.battery import block as battery
-from elements.existing_pv import block as existing_pv
 from elements.grid import block as grid
-from elements.voltiris import block as voltiris
 from system.setup import System
+
+PV = "pv"   # the site's PV generator (the reference model's name)
 
 
 def grid_limits_kw(s: System) -> tuple[float, float]:
@@ -43,10 +47,7 @@ def _add_components(n: pypsa.Network, s: System, regime: str, battery_kwh: float
     n.snapshot_weightings.loc[:, :] = s.dt
     n.add("Carrier", "electricity")
     n.add("Bus", "main", carrier="electricity")
-    if s.voltiris:
-        s.voltiris.add_to(n)
-    if s.existing_pv:
-        s.existing_pv.add_to(n)
+    add_must_run(n, PV, s.pv_total)
     s.greenhouse.add_to(n)
     p_imp, p_exp = grid_limits_kw(s)
     bm = s.bm
@@ -174,10 +175,7 @@ def solve(s: System, regime: str, battery_kwh: float | None = None,
 
 def pv_output(n: pypsa.Network, s: System) -> pd.Series:
     """All PV on site per step, kW: Voltiris and existing PV."""
-    names = [g for g, on in ((voltiris.GENERATOR, s.voltiris), (existing_pv.GENERATOR, s.existing_pv)) if on]
-    if not names:
-        return pd.Series(0.0, index=n.snapshots)
-    return n.generators_t.p[names[0]] if len(names) == 1 else n.generators_t.p[names].sum(axis=1)
+    return n.generators_t.p[PV]
 
 
 def results(n: pypsa.Network, s: System) -> pd.DataFrame:
