@@ -203,5 +203,6 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         "bills": bills,
         "payback": pd.DataFrame(payback_table),
         "dispatch": res_b,
+        "dispatch_no_battery": res_nb,
         "baseline": {"cost_no_pv": baseline_cost, "demand_no_pv": baseline_demand, "dup_no_battery": dup_no_battery},
     }

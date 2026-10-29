@@ -1,34 +1,213 @@
 {
-  "_about": "Scenario presets: the block activation matrix of thesis.md section 2.1, plus the battery study. A preset only fills the system step of the interface; any block can then be switched on or off. options are notes from the matrix, not yet read by any model. aux_heater is added where no boiler is drawn (assumption A1).",
+  "_about": "Scenario presets: the block activation matrix of thesis.md section 2.1, plus the studies that run today (electricity only, battery, gas boiler, heat storage). A preset only fills the system step of the interface; any block can then be switched on or off. options are notes from the matrix, not yet read by any model. aux_heater is added where no boiler is drawn (assumption A1).",
   "presets": [
-    {"id": "battery_study", "name": "Voltiris + battery (battery study)",
-     "blocks": ["greenhouse", "voltiris", "grid", "battery"]},
-    {"id": "base", "name": "Baseline",
-     "blocks": ["greenhouse", "ng_boiler", "thermal_storage", "grid"],
-     "options": {"grid": "import only"}},
-    {"id": "s1", "name": "S1 CHP",
-     "blocks": ["greenhouse", "ng_boiler", "chp", "thermal_storage", "grid"],
-     "options": {"ng_boiler": "backup", "grid": "import and export"}},
-    {"id": "s2", "name": "S2 Voltiris + heat pump",
-     "blocks": ["greenhouse", "ng_boiler", "voltiris", "heat_pump", "thermal_storage", "grid"],
-     "options": {"heat_pump": "ambient source", "ng_boiler": "backup and CO2 source"}},
-    {"id": "s2_bat", "name": "S2 + battery",
-     "blocks": ["greenhouse", "ng_boiler", "voltiris", "heat_pump", "thermal_storage", "battery", "grid"],
-     "options": {"heat_pump": "ambient source", "ng_boiler": "backup and CO2 source"}},
-    {"id": "s2_bat_extco2", "name": "S2 + battery + external CO2",
-     "blocks": ["greenhouse", "voltiris", "heat_pump", "thermal_storage", "battery", "external_co2", "aux_heater", "grid"],
-     "options": {"heat_pump": "ambient source"}},
-    {"id": "s3", "name": "S3 Voltiris x data center",
-     "blocks": ["greenhouse", "ng_boiler", "voltiris", "heat_pump", "thermal_storage", "data_center", "grid"],
-     "options": {"heat_pump": "data center heat", "ng_boiler": "backup and CO2 source"}},
-    {"id": "s3_bat", "name": "S3 + battery",
-     "blocks": ["greenhouse", "ng_boiler", "voltiris", "heat_pump", "thermal_storage", "battery", "data_center", "grid"],
-     "options": {"heat_pump": "data center heat", "ng_boiler": "backup and CO2 source"}},
-    {"id": "s3_bat_extco2", "name": "S3 + battery + external CO2",
-     "blocks": ["greenhouse", "voltiris", "heat_pump", "thermal_storage", "battery", "data_center", "external_co2", "aux_heater", "grid"],
-     "options": {"heat_pump": "data center heat"}},
-    {"id": "s4", "name": "S4 complete system",
-     "blocks": ["greenhouse", "voltiris", "heat_pump", "thermal_storage", "battery", "data_center", "sofc", "aux_heater", "grid"],
-     "options": {"heat_pump": "data center heat"}}
+    {
+      "id": "electricity_only",
+      "name": "Voltiris on the grid (electricity only)",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "grid"
+      ]
+    },
+    {
+      "id": "battery_study",
+      "name": "Voltiris + battery (battery study)",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "grid",
+        "battery"
+      ]
+    },
+    {
+      "id": "boiler_study",
+      "name": "Gas boiler (heat and CO2)",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "grid"
+      ]
+    },
+    {
+      "id": "boiler_battery_study",
+      "name": "Gas boiler + Voltiris + battery",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "gas_supply",
+        "ng_boiler",
+        "grid",
+        "battery"
+      ]
+    },
+    {
+      "id": "boiler_storage_study",
+      "name": "Gas boiler + heat storage + Voltiris",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "gas_supply",
+        "ng_boiler",
+        "thermal_storage",
+        "grid"
+      ]
+    },
+    {
+      "id": "base",
+      "name": "Baseline",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "thermal_storage",
+        "grid"
+      ],
+      "options": {
+        "grid": "import only"
+      }
+    },
+    {
+      "id": "s1",
+      "name": "S1 CHP",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "chp",
+        "thermal_storage",
+        "grid"
+      ],
+      "options": {
+        "ng_boiler": "backup",
+        "grid": "import and export"
+      }
+    },
+    {
+      "id": "s2",
+      "name": "S2 Voltiris + heat pump",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "ambient source",
+        "ng_boiler": "backup and CO2 source"
+      }
+    },
+    {
+      "id": "s2_bat",
+      "name": "S2 + battery",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "battery",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "ambient source",
+        "ng_boiler": "backup and CO2 source"
+      }
+    },
+    {
+      "id": "s2_bat_extco2",
+      "name": "S2 + battery + external CO2",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "battery",
+        "external_co2",
+        "aux_heater",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "ambient source"
+      }
+    },
+    {
+      "id": "s3",
+      "name": "S3 Voltiris x data center",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "data_center",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "data center heat",
+        "ng_boiler": "backup and CO2 source"
+      }
+    },
+    {
+      "id": "s3_bat",
+      "name": "S3 + battery",
+      "blocks": [
+        "greenhouse",
+        "gas_supply",
+        "ng_boiler",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "battery",
+        "data_center",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "data center heat",
+        "ng_boiler": "backup and CO2 source"
+      }
+    },
+    {
+      "id": "s3_bat_extco2",
+      "name": "S3 + battery + external CO2",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "battery",
+        "data_center",
+        "external_co2",
+        "aux_heater",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "data center heat"
+      }
+    },
+    {
+      "id": "s4",
+      "name": "S4 complete system",
+      "blocks": [
+        "greenhouse",
+        "voltiris",
+        "heat_pump",
+        "thermal_storage",
+        "battery",
+        "data_center",
+        "sofc",
+        "aux_heater",
+        "grid"
+      ],
+      "options": {
+        "heat_pump": "data center heat"
+      }
+    }
   ]
 }

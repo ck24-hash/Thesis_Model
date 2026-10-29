@@ -98,6 +98,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .tiles.big .tile { background: var(--panel); }
 .tiles.big .tile .v { font-size: 22px; }
 .tile.accent { border-color: var(--accent); background: var(--accent-soft); }
+.tile.warn { border-color: var(--warn); background: var(--warn-soft); }
 
 /* tables */
 .table-wrap { overflow-x: auto; }
@@ -262,7 +263,7 @@ table.grid td.yes { color: var(--good); }
 .diagram .gh-sub { font: 11.5px var(--sans); fill: var(--ink2); text-anchor: middle; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink2); margin: 10px 2px 0; }
 .legend .lg { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
-.lg.el { background: #e0a100; } .lg.heat { background: #dc2626; } .lg.co2 { background: #64748b; } .lg.lt { background: #f97316; }
+.lg.el { background: #e0a100; } .lg.heat { background: #dc2626; } .lg.co2 { background: #64748b; } .lg.lt { background: #f97316; } .lg.gas { background: #0891b2; }
 .lg.planned { height: 10px !important; width: 14px !important; border: 1.5px dashed #94a3b8; background: none; }
 .callout.sys-note { background: var(--warn-soft); color: var(--warn); margin: 0 0 16px; }
 [hidden] { display: none !important; }   /* the layout classes above must not show what is hidden */

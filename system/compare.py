@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         case = json.loads(path.read_text(encoding="utf-8"))
         tag = case.get("tag", path.stem)
         ref = run_reference(case, path.parent, tag)
-        new, _ = blocks.run(case, path.parent, tag, log=lambda *a, **k: None)
+        new = blocks.run(case, path.parent, tag, log=lambda *a, **k: None, sizing="sequential")[0]["battery"]
         diffs = differences(ref, new)
         failed += bool(diffs)
         print(f"{path.name}: {'identical' if not diffs else f'{len(diffs)} differences'}", flush=True)

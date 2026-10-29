@@ -23,6 +23,12 @@ its PV energy p; only PV energy may be exported, energy bought from the grid onl
     p(t) = (1 - loss)^dt x p(t-1) + dt x (eta_charge x charging from PV - discharging of PV energy),  0 <= p <= e
     export <= PV surplus - charging from PV + eta_discharge x discharging of PV energy
 No tie-break term in the objective: a 1e-6 one made a French year about 50 times slower.
+
+Heat and CO2 (greenhouse + gas supply + gas boiler), when the system has a heat block: a heat bus, a CO2 bus and a
+gas bus. The greenhouse's heat demand (and its CO2 demand when it must be met) are loads; the boiler is a link from
+gas to heat and CO2; heat the boiler gives beyond the demand is released (heat_release) and CO2 beyond the demand
+is vented (co2_vent), both free. With a heat storage, heat may also go into the tank and come back later. Without a
+heat block the network is the electricity side only, as before.
 """
 from __future__ import annotations
 
@@ -32,7 +38,11 @@ import xarray as xr
 
 from common.network import add_must_run
 from elements.battery import block as battery
+from elements.gas_supply import block as gas_supply
+from elements.greenhouse import block as greenhouse
 from elements.grid import block as grid
+from elements.ng_boiler import block as ng_boiler
+from elements.thermal_storage import block as thermal_storage
 from system.setup import System
 
 PV = "pv"   # the site's PV generator (the reference model's name)
@@ -42,7 +52,35 @@ def grid_limits_kw(s: System) -> tuple[float, float]:
     return s.grid.limits_kw(s.load, s.pv_total)
 
 
-def _add_components(n: pypsa.Network, s: System, regime: str, battery_kwh: float | None) -> None:
+def choose_regime(s: System, auto: bool = True, manual: str | None = None) -> tuple[str, float | None]:
+    """The regime without battery: from the DUP of what is drawn from the grid with all PV."""
+    return s.grid.choose_regime((s.load - s.pv_total).clip(lower=0), auto, manual)
+
+
+def _add_heat(n: pypsa.Network, s: System, boiler_kw: float, storage_kwh: float = 0.0, slack: bool = True) -> None:
+    """The heat, CO2 and gas side: the greenhouse's demand, the gas supply, the boiler of boiler_kw kW of heat, the
+    heat storage of storage_kwh (none at 0), and the free release of surplus heat and CO2."""
+    for carrier in ("heat", "co2", "gas"):
+        n.add("Carrier", carrier)
+    n.add("Bus", greenhouse.HEAT_BUS, carrier="heat")
+    n.add("Bus", greenhouse.CO2_BUS, carrier="co2")
+    s.gas.add_to(n, s.boiler.gas_kw(boiler_kw))
+    s.greenhouse.add_heat_co2_to(n, slack)
+    s.boiler.add_to(n, boiler_kw, s.gas.emission_factor, s.commercial.boiler_var_om_per_kwh)
+    storage_kw = 0.0
+    if s.storage is not None and storage_kwh:
+        s.storage.add_to(n, storage_kwh)
+        storage_kw = s.storage.power_kw(storage_kwh)
+    n.links["efficiency2"] = n.links["efficiency2"].fillna(1.0)   # the links without a third bus (not the boiler)
+    n.add("Generator", "heat_release", bus=greenhouse.HEAT_BUS, p_nom=max(boiler_kw + storage_kw, 1.0), p_min_pu=-1,
+          p_max_pu=0, marginal_cost=0)
+    co2_max = s.boiler.gas_kw(boiler_kw) * s.gas.emission_factor * s.boiler.co2_use_frac
+    n.add("Generator", "co2_vent", bus=greenhouse.CO2_BUS, p_nom=max(co2_max, 1.0), p_min_pu=-1, p_max_pu=0,
+          marginal_cost=0)
+
+
+def _add_components(n: pypsa.Network, s: System, regime: str, battery_kwh: float | None,
+                    boiler_kw: float | None = None, storage_kwh: float = 0.0, heat_slack: bool = True) -> None:
     n.set_snapshots(s.index)
     n.snapshot_weightings.loc[:, :] = s.dt
     n.add("Carrier", "electricity")
@@ -62,6 +100,8 @@ def _add_components(n: pypsa.Network, s: System, regime: str, battery_kwh: float
     if battery_kwh is not None:
         s.battery.add_to(n, battery_kwh)
         n.sanitize()
+    if s.boiler is not None:
+        _add_heat(n, s, boiler_kw, storage_kwh, heat_slack)
 
 
 def meter_bounds(n: pypsa.Network, s: System, regime: str, battery_kwh: float | None) -> pd.DatetimeIndex:
@@ -159,14 +199,21 @@ def _pv_only_export(n: pypsa.Network, m, s: System) -> None:
     m.add_constraints(-exp + charge_pv - eta_d * discharge_pv <= surplus, name="pv_only_export_from_pv")
 
 
-def solve(s: System, regime: str, battery_kwh: float | None = None,
-          dup_lock: str | None = None) -> pypsa.Network | None:
-    """Solve the year without (battery_kwh None) or with a battery of that size. None when the solver does not reach
-    an optimum."""
+def solve(s: System, regime: str, battery_kwh: float | None = None, dup_lock: str | None = None,
+          boiler_kw: float | None = None, storage_kwh: float | None = None) -> pypsa.Network | None:
+    """Solve the year without (battery_kwh None) or with a battery of that size, with the boiler at boiler_kw (else
+    the size its study chose, s.boiler_kw) and the heat storage at storage_kwh (else the size its study chose,
+    s.storage_kwh; none before its study). None when the solver does not reach an optimum."""
     if battery_kwh is not None and s.battery is None:
         raise ValueError("A battery size was given, but the system has no battery block.")
+    if s.boiler is not None:
+        boiler_kw = boiler_kw if boiler_kw is not None else s.boiler_kw
+        if boiler_kw is None:
+            raise ValueError("The system has a gas boiler but no size for it: run its study first.")
+    if storage_kwh is None:
+        storage_kwh = s.storage_kwh or 0.0
     n = pypsa.Network()
-    _add_components(n, s, regime, battery_kwh)
+    _add_components(n, s, regime, battery_kwh, boiler_kw, storage_kwh)
     meter_bounds(n, s, regime, battery_kwh)
     status, _ = n.optimize(solver_name="highs", log_to_console=False, io_api="direct",
                            extra_functionality=_extra(s, regime, dup_lock, battery_kwh is not None))
@@ -193,4 +240,35 @@ def results(n: pypsa.Network, s: System) -> pd.DataFrame:
             # battery charging not covered by the step's PV surplus, i.e. bought from the grid
             surplus = (s.pv_total - s.load).clip(lower=0).reindex(n.snapshots)
             out["battery_charge_from_grid"] = (n.links_t.p0[battery.CHARGER] - surplus).clip(lower=0)
+    return pd.DataFrame(out, index=n.snapshots)
+
+
+def heat_results(n: pypsa.Network, s: System) -> pd.DataFrame:
+    """The heat and CO2 side per step: heat in kW, CO2 in kg/h, gas in kW (positive numbers); with a heat storage
+    also storage_charge, storage_discharge (kW) and storage_soc (kWh). Heat balance at every step:
+        boiler_heat + heat_unmet + storage_discharge = heat_demand + heat_release + storage_charge"""
+    link = ng_boiler.LINK
+    gen = n.generators_t.p
+    zero = pd.Series(0.0, index=n.snapshots)
+    co2_demand = s.greenhouse.co2
+    out = {
+        "heat_demand": s.greenhouse.heat,
+        "boiler_heat": -n.links_t.p1[link],
+        "heat_release": -gen["heat_release"],
+        "heat_unmet": gen.get("heat_unmet", zero),
+        "gas": n.links_t.p0[link],
+        "co2_demand": co2_demand,
+        "co2_from_boiler": -n.links_t.p2[link],
+        "co2_vented": -gen["co2_vent"],
+    }
+    if s.greenhouse.co2_mode == "required":
+        out["co2_unmet"] = gen.get("co2_unmet", zero)
+        out["co2_supplied"] = co2_demand - out["co2_unmet"]
+    else:   # by-product: the greenhouse takes what the boiler gives, up to its demand
+        out["co2_supplied"] = (-n.links_t.p2[link]).clip(upper=co2_demand)
+        out["co2_unmet"] = co2_demand - out["co2_supplied"]
+        out["co2_vented"] = -n.links_t.p2[link] - out["co2_supplied"]
+    out["co2_emitted"] = n.links_t.p0[link] * s.gas.emission_factor   # all the CO2 of the gas burnt
+    if thermal_storage.CHARGER in n.links.index:
+        out.update(thermal_storage.ThermalStorage.results(n))
     return pd.DataFrame(out, index=n.snapshots)

@@ -8,7 +8,7 @@
   },
   "blocks": {
     "greenhouse": {
-      "input_file": "greenhouse_load_2026.xlsx"
+      "input_file": "greenhouse_demand_2026.xlsx"
     },
     "voltiris": {
       "input_file": "voltiris_yield_2026.xlsx",

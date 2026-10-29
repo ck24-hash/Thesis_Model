@@ -1,0 +1,28 @@
+{
+  "_about": "Heat storage (hot water tank) sized in kWh of heat. TO CHECK: every value is a placeholder until the block is refined.",
+  "charge_efficiency": 0.95,
+  "charge_efficiency_note": "share of the heat sent to the tank that is stored. TO CHECK: placeholder",
+  "discharge_efficiency": 0.95,
+  "discharge_efficiency_note": "share of the stored heat that reaches the greenhouse. TO CHECK: placeholder",
+  "power_kw_per_kwh": 0.25,
+  "power_note": "the most heat the tank takes in, and gives out, per hour, per kWh of size (0.25: full in 4 hours). TO CHECK: placeholder",
+  "loss": {
+    "mode": "constant",
+    "mode_note": "constant, seasonal or dynamic (from the outside temperature of the block's input file)",
+    "constant_per_hour": 0.005,
+    "constant_note": "share of the stored heat lost per hour, all year. TO CHECK: placeholder",
+    "seasonal_per_hour": {
+      "winter": 0.006,
+      "spring": 0.005,
+      "summer": 0.004,
+      "autumn": 0.005
+    },
+    "seasonal_note": "share lost per hour in each season (winter Dec-Feb, spring Mar-May, summer Jun-Aug, autumn Sep-Nov). TO CHECK: placeholders",
+    "dynamic": {
+      "loss_per_hour_at_ref": 0.005,
+      "store_temp_c": 70,
+      "ref_outside_temp_c": 10
+    },
+    "dynamic_note": "share lost per hour = loss_per_hour_at_ref x (store_temp_c - outside temperature) / (store_temp_c - ref_outside_temp_c), at least 0. TO CHECK: placeholders"
+  }
+}

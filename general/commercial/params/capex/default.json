@@ -5,5 +5,15 @@
   "pv_per_wp": {"amount": 1.8, "currency": "CHF"},
   "pv_note": "price per Wp of Voltiris modules: 1.80 CHF/Wp, 1.962 EUR/Wp",
   "battery_replacement_frac": 0.60,
-  "battery_replacement_note": "over the PV life the battery is bought once in full, then (PV life / battery life - 1) more times at this share of the gross price (cells only; slab, enclosure and inverters reused), unsubsidised. With 25 and 10 years: 1 full + 1.5 x 60%, i.e. 25 years of battery"
+  "battery_replacement_note": "over the PV life the battery is bought once in full, then (PV life / battery life - 1) more times at this share of the gross price (cells only; slab, enclosure and inverters reused), unsubsidised. With 25 and 10 years: 1 full + 1.5 x 60%, i.e. 25 years of battery",
+  "boiler_per_kw_th": {"amount": 100, "currency": "EUR"},
+  "boiler_per_kw_note": "gas boiler investment per kW of heat. TO CHECK: placeholder",
+  "boiler_fixed_om_per_kw_year": {"amount": 2, "currency": "EUR"},
+  "boiler_fixed_om_note": "gas boiler fixed operation and maintenance per kW of heat and year. TO CHECK: placeholder",
+  "boiler_var_om_per_mwh_heat": {"amount": 1, "currency": "EUR"},
+  "boiler_var_om_note": "gas boiler variable operation and maintenance per MWh of heat. TO CHECK: placeholder",
+  "thermal_storage_per_kwh": {"amount": 30, "currency": "EUR"},
+  "thermal_storage_per_kwh_note": "heat storage investment per kWh of heat stored, installed. TO CHECK: placeholder",
+  "thermal_storage_fixed_om_per_kwh_year": {"amount": 0.3, "currency": "EUR"},
+  "thermal_storage_fixed_om_note": "heat storage fixed operation and maintenance per kWh of size and year. TO CHECK: placeholder"
 }

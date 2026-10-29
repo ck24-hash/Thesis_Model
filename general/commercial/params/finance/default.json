@@ -3,5 +3,9 @@
   "battery_life_yr": 10,
   "pv_life_yr": 25,
   "peak_shaving_realisation": 0.50,
-  "peak_shaving_realisation_note": "share of the modelled peak-shaving saving reached in practice (the LP has perfect foresight); for reporting only, not used in the sizing"
+  "peak_shaving_realisation_note": "share of the modelled peak-shaving saving reached in practice (the LP has perfect foresight); for reporting only, not used in the sizing",
+  "boiler_life_yr": 20,
+  "boiler_life_note": "gas boiler life, years. TO CHECK: placeholder",
+  "thermal_storage_life_yr": 25,
+  "thermal_storage_life_note": "heat storage life, years. TO CHECK: placeholder"
 }

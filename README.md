@@ -5,19 +5,25 @@ electricity. The thesis logic is in `thesis.md`, the plan for building the block
 
 Today the electricity side runs: greenhouse load, Voltiris, existing PV, grid and battery, each a block in
 `elements/`, put together by `system/`. They give the same results as Jesse's PV + battery model
-(`elements/battery_reference`), which stays frozen as the reference. Heat and CO2 blocks are planned.
+(`elements/battery_reference`), which stays frozen as the reference. On the heat side, the greenhouse's heat and CO2
+demand, the gas supply, the gas boiler and the heat storage (each sized by its own study) run; the other heat and
+CO2 blocks are planned. The sized blocks are sized together by default, for the site's lowest yearly cost. Every run
+reports the site's yearly cost and the electricity side: supply and demand, self-consumption, the grid bill.
 
 ## Contents
 
 ```
 interface/               one browser interface for every run: choose a scenario or build your own system
-system/                  the engine: builds one network from the chosen blocks, solves it, runs the battery study
+system/                  the engine: builds one network from the chosen blocks, solves it, runs the studies and the electricity side
 elements/                one folder per physical block, its technical side (elements/README.md)
-  greenhouse/            electricity load
+  greenhouse/            electricity load, heat and CO2 demand
   voltiris/              Voltiris PV output
   existing_pv/           PV already on site
   grid/                  markets, tariffs, import and export, capacity charges
   battery/               battery, its size sweep and payback study
+  gas_supply/            natural gas: price, emission factor, carbon levy
+  ng_boiler/             gas boiler, its size sweep by lifetime cost
+  thermal_storage/       heat storage: efficiencies, three heat loss models, its size sweep
   battery_reference/     Jesse's PV + battery model, frozen
 general/                 what is not a physical block (general/README.md)
   commercial/            business model, investment prices, lifetimes, ancillary revenue rate
@@ -58,7 +64,7 @@ The command lines write `summary_<tag>.json` and `results_<tag>.xlsx` next to th
 case overwrites the example results in `examples/battery/`. The interface writes to `interface/app_runs/<tag>/`;
 `compare.py` writes nothing.
 
-Tests: `python -m pytest system/tests common/tests elements/battery_reference/tests -q` (about 3 min).
+Tests: `python -m pytest system/tests common/tests elements/battery_reference/tests -q` (about 4 min).
 
 Ancillary services are always applied (`elements/battery/params/ancillary/<country>.json`). To leave them out of a
 run, add the overrides `{"ancillary": {"rate_per_kw_year": 0, "reserve": {"mode": "percent", "frac": 0}}}` to its

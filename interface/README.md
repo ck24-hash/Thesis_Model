@@ -12,7 +12,8 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
 
 1. **System**: a drawing of the greenhouse with every block around it; click a block to add or remove it (flows light
    up by carrier; dashed = not built yet). Or load a case file or a scenario preset (`common/scenarios.json`, the
-   thesis matrix), and set the data year. The blocks chosen pick the model that runs them (the run type); when two
+   thesis matrix), and set the data year. With two sized blocks or more, choose how they are sized: together
+   (default) or one at a time. The blocks chosen pick the model that runs them (the run type); when two
    fit, choose one. A system no model can run yet is shown with the reason, and cannot be run.
    - **One page per chosen block**, under System, with its technical side only:
      - Greenhouse demand, Voltiris, Existing PV, Grid: the block's own input file (pick, upload or type a path; its time
@@ -24,12 +25,18 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
 2. **Input data**: every chosen block's file and status, and all curves on one chart, by year (daily means), month or
    week (hourly means), each curve switchable.
 3. **General**, the items not tied to one block (`general/`): Market (country, region, utility; the run's currency and
-   tariff), Commercial (business model, prices, lifetimes, ancillary rate), Subsidies, EMS. Shown when they apply.
+   tariff), Commercial (business model, prices, lifetimes, ancillary rate, boiler and heat storage prices and O&M), Subsidies,
+   EMS. Shown when
+   they apply, and a field about one block only when the system has it.
 4. **Run**: the setup check (nothing is solved), the run with its progress and log, other overrides (JSON), the case
    file, every parameter used. It writes `case_<tag>.json` (system format) to the output folder and runs it.
-5. **Results**, in tabs: Overview (key numbers, why this size, where the value comes from), Sizes tested, Bills and
-   payback, Over the year (per day and one week), Month by month, Files. After a refresh the last run's results
-   come back.
+5. **Results**, in tabs: System, always (the site's yearly cost, running and investments per year, the sizes and,
+   with the joint sizing, each block's value in the system); Electricity, always (supply and demand per month and for one week, self-consumption and
+   self-sufficiency, money to and from the grid with the bill without PV, month by month; without and with the
+   battery when there is one); for the battery Battery (key numbers, why this size, where the value comes from),
+   Battery sizes, Bills and payback, Over the year, Month by month; Gas boiler and Heat storage, one tab each (key
+   numbers, why this size, each size tested, per day, month by month); Files. A tab shows only when the run has that
+   study. After a refresh the last run's results come back.
 
 The menu button (top left) hides or shows the menu. Parameter fields show their default and a reset button when
 changed; an i next to a field explains it.
@@ -41,16 +48,17 @@ The address keeps the page (`#voltiris`, `#run`), so a refresh opens the same pa
 A run type is one module in `adapters/`, the only place that knows a model. It gives `BLOCKS_REQUIRED` and
 `BLOCKS_ALLOWED`, its markets, its columns (with unit and kind), its parameters, a preview, a run, and its progress
 stages. When several fit the chosen blocks, step 1 shows a choice and the case file keeps it in `system.run_type`;
-the first that fits is the default. Today there are two, for the same blocks (greenhouse electricity load + grid +
-battery, with or without Voltiris and existing PV) and the same case file:
+the first that fits is the default. Today there are two:
 
 - `blocks` (`system_study.py`, the default): the blocks in `elements/` and the engine in `system/`, as
-  `python system/run_case.py case_<tag>.json` runs them.
+  `python system/run_case.py case_<tag>.json` runs them. It needs greenhouse and grid; each block with a study is
+  sized (boiler, then heat storage, then battery), and the electricity side runs for every system.
 - `battery_study` (`battery_study.py`): the reference model `elements/battery_reference`. It reads one workbook, so the
   run writes the blocks' inputs as `input_<tag>.xlsx` in its format and the case as `case_<tag>_reference.json`, and
   runs that exactly as `python elements/battery_reference/run_case.py case_<tag>_reference.json` would.
 
-Both write the same tables, drawn by the same results panel (`battery_view.py`). A reference case file (one
+For a battery system both write the same tables, drawn by the same results panel (`battery_view.py`, which also
+shapes the boiler study's results). A reference case file (one
 workbook, no `blocks`) opens with every block reading that workbook.
 
 The battery model has no ancillary switch of its own: "off" in the battery card writes

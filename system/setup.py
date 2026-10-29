@@ -36,18 +36,22 @@ from common import parameters as P
 from common import timeseries
 from elements.battery import block as battery
 from elements.existing_pv import block as existing_pv
+from elements.gas_supply import block as gas_supply
 from elements.greenhouse import block as greenhouse
 from elements.grid import block as grid
+from elements.ng_boiler import block as ng_boiler
+from elements.thermal_storage import block as thermal_storage
 from elements.voltiris import block as voltiris
 from general.commercial import block as commercial
 from general.ems import block as ems
 from general.subsidies import block as subsidies
 
 # the blocks that can be built; greenhouse first: its load file sets the run's time stamps
-BLOCKS = {m.ID: m for m in (greenhouse, voltiris, existing_pv, grid, battery)}
+BLOCKS = {m.ID: m for m in (greenhouse, voltiris, existing_pv, grid, gas_supply, ng_boiler, thermal_storage, battery)}
 GENERAL = {m.ID: m for m in (commercial, subsidies, ems)}
 OWNERS = {key: m.OWNS for key, m in {**BLOCKS, **GENERAL}.items()}   # who owns which parameters, for the overrides
 REQUIRED = ("greenhouse", "grid")
+NEEDS = {"ng_boiler": ["gas_supply"], "thermal_storage": ["ng_boiler"]}   # a block that cannot run without another
 
 
 def business_model_of(case: dict) -> str:
@@ -92,9 +96,11 @@ def read_inputs(case: dict, read) -> tuple[pd.DatetimeIndex, dict, dict]:
         if cfg is None or not module.COLUMNS:
             continue
         if not cfg.get("input_file"):
-            if key == "grid":   # the day-ahead price is only needed by some tariffs: the grid says so if missing
-                continue
-            raise KeyError(f"The {key} block has no input_file.")
+            # only a block whose columns are all optional may have no file (the grid's day-ahead price, the gas
+            # price): the block says itself if it needs it
+            if any(c["needed"] == "always" for c in module.COLUMNS):
+                raise KeyError(f"The {key} block has no input_file.")
+            continue
         names = column_names(key, cfg.get("columns"))
         table, steps[key] = read_table(read(cfg["input_file"]), year, names,
                                        {names[c["role"]]: c["kind"] for c in module.COLUMNS})
@@ -109,7 +115,7 @@ def read_inputs(case: dict, read) -> tuple[pd.DatetimeIndex, dict, dict]:
         for c in module.COLUMNS:
             if names[c["role"]] in table.columns:
                 inputs[c["role"]] = table[names[c["role"]]]
-            elif key != "grid":   # the grid says itself when its tariff needs the day-ahead price
+            elif c["needed"] == "always":   # the others: the block says itself when it needs them
                 raise KeyError(f"Column '{names[c['role']]}' ({c['about']}) is missing in {cfg['input_file']}. "
                                f"Available columns: {list(table.columns)}")
     return index, inputs, steps
@@ -125,6 +131,10 @@ class System:
         missing = [b for b in REQUIRED if b not in blocks]
         if missing:
             raise ValueError(f"A system needs {', '.join(REQUIRED)}; missing: {', '.join(missing)}.")
+        for block, needed in NEEDS.items():
+            lacking = [x for x in needed if block in blocks and x not in blocks]
+            if lacking:
+                raise ValueError(f"The {block} block needs {', '.join(lacking)} in the system.")
         self.market, self.dt, self.index = market, dt, index
         self.chosen = [b for b in BLOCKS if b in blocks]
         owned = P.split_overrides(overrides, OWNERS)
@@ -133,7 +143,18 @@ class System:
         grid_params = grid.load_params(market, owned["grid"], fx)
         self.currency = grid_params["tariff"]["currency"]
         # the physical blocks
-        self.greenhouse = greenhouse.Greenhouse(inputs["load_kw"], dt)
+        gh = blocks["greenhouse"] or {}
+        self.heat_blocks = [b for b in ("ng_boiler",) if b in blocks]   # the blocks that supply heat and CO2
+        if self.heat_blocks:
+            lacking = [c for c in ("heat_kw", "co2_kg_h") if c not in inputs]
+            if lacking:
+                names = {c["role"]: c["column"] for c in greenhouse.COLUMNS}
+                raise KeyError(f"The greenhouse file needs the columns {', '.join(names[c] for c in lacking)} "
+                               f"when the system has a heat block ({', '.join(self.heat_blocks)}).")
+        self.greenhouse = greenhouse.Greenhouse(
+            greenhouse.load_params(market, self.currency, owned["greenhouse"], fx), inputs["load_kw"], dt,
+            inputs.get("heat_kw") if self.heat_blocks else None, inputs.get("co2_kg_h") if self.heat_blocks else None,
+            gh.get("co2_mode", "required"))
         v = blocks.get("voltiris")
         self.voltiris = None if v is None else voltiris.Voltiris(
             voltiris.load_params(market, self.currency, owned["voltiris"], fx), inputs["pv_w_per_module"],
@@ -142,6 +163,16 @@ class System:
         g = blocks["grid"] or {}
         self.grid = grid.Grid(grid_params, index, dt, inputs.get("day_ahead_eur_kwh"),
                               g.get("import_max_kw"), g.get("export_max_kw"))
+        self.gas = None if "gas_supply" not in blocks else gas_supply.GasSupply(
+            gas_supply.load_params(market, self.currency, owned["gas_supply"], fx), index,
+            inputs.get("gas_price_eur_kwh"), grid_params["tariff"].get("eur_to_local", 1.0))
+        self.boiler = (ng_boiler.Boiler(ng_boiler.load_params(market, self.currency, owned["ng_boiler"], fx))
+                       if "ng_boiler" in blocks else None)
+        self.boiler_kw = None   # the boiler's size: set by its study, then fixed for the other studies
+        self.storage = (thermal_storage.ThermalStorage(
+            thermal_storage.load_params(market, self.currency, owned["thermal_storage"], fx), index,
+            inputs.get("outside_temp_c")) if "thermal_storage" in blocks else None)
+        self.storage_kwh = None   # the heat storage's size: set by its study (none before it: no storage)
         self.battery = (battery.Battery(battery.load_params(market, self.currency, owned["battery"], fx))
                         if "battery" in blocks else None)
         # the general items
@@ -191,7 +222,11 @@ def parameters(market: dict, business_model: str = "direct_sales", overrides: di
     fx = P.fx_rates()
     out = grid.load_params(market, owned["grid"], fx)
     currency = out["tariff"]["currency"]
-    for part in (voltiris.load_params(market, currency, owned["voltiris"], fx),
+    for part in (greenhouse.load_params(market, currency, owned["greenhouse"], fx),
+                 voltiris.load_params(market, currency, owned["voltiris"], fx),
+                 gas_supply.load_params(market, currency, owned["gas_supply"], fx),
+                 ng_boiler.load_params(market, currency, owned["ng_boiler"], fx),
+                 thermal_storage.load_params(market, currency, owned["thermal_storage"], fx),
                  battery.load_params(market, currency, owned["battery"], fx),
                  commercial.load_params(market, currency, business_model, owned["commercial"], fx),
                  subsidies.load_params(market, currency, owned["subsidies"], fx),

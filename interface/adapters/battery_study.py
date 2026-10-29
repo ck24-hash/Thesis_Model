@@ -16,9 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
-from interface.adapters.battery_view import STAGE_LABELS, first_stage, results_for_page, track  # noqa: F401
+from interface.adapters.battery_view import (STAGE_LABELS, battery_page, electricity_page, first_stage,  # noqa: F401
+                                             results_for_page, system_page, track)
 from interface.tables import clean, read_table
-from system import compare, setup
+from system import compare, costs, electricity, setup
 
 MODEL_DIR = Path(__file__).resolve().parents[2] / "elements" / "battery_reference"
 sys.path.insert(0, str(MODEL_DIR))
@@ -46,7 +47,7 @@ def options() -> dict:
     return {"id": ID, "name": NAME, "blocks_required": BLOCKS_REQUIRED, "blocks_allowed": BLOCKS_ALLOWED,
             "markets": markets, "business_models": sorted(p.stem for p in (PARAMS_DIR / "business_models").glob("*.json")),
             "sizing_defaults": sizing.DEFAULTS,
-            "stages": [dict(stage=s, label=label, counts=counts) for s, label, counts in STAGE_LABELS],
+            "stages": [dict(stage=s, label=label, counts=counts, block=b) for s, label, counts, b in STAGE_LABELS],
             "model_dir": str(MODEL_DIR)}
 
 
@@ -170,14 +171,24 @@ def run(case_path: Path, out_dir: Path, tag: str, log) -> tuple[dict, dict]:
     regime = saved.get("regime", {})
     out = pipeline.run(s, regime_auto=regime.get("auto", True), regime_manual=regime.get("manual"),
                        sizing_settings=saved.get("sizing"), tag=tag, log=log)
+    # the electricity side for the page: this model's chosen dispatch, the year without battery from system/ (the
+    # same LP, system/compare.py)
+    system = setup.build(case, case_path.parent)
+    elec = electricity.run(system, regime_auto=regime.get("auto", True), regime_manual=regime.get("manual"),
+                           battery=out, log=log)
+    sm = out["summary"]
+    log("\n=== SITE YEARLY COST ===")
+    cost = costs.yearly(system, elec["cases"]["battery"]["kpi"], None, {"battery": sm["battery_kwh"]},
+                        ems_yr=sm["battery_ems_yr"])
     log("\nWriting the result files ...")
     run_case.write_results(out, out_dir, tag)
     summary_path, workbook_path = out_dir / f"summary_{tag}.json", out_dir / f"results_{tag}.xlsx"
     log(f"  {summary_path}\n  {workbook_path}")
-    return _results_for_page(out, s, saved.get("sizing")), {"summary": str(summary_path), "results": str(workbook_path)}
+    return (_results_for_page(out, s, saved.get("sizing"), elec, cost),
+            {"summary": str(summary_path), "results": str(workbook_path)})
 
 
-def _results_for_page(out: dict, s: Setup, sizing_settings: dict | None) -> dict:
+def _results_for_page(out: dict, s: Setup, sizing_settings: dict | None, elec: dict, cost: dict) -> dict:
     cfg = {**sizing.DEFAULTS, **(sizing_settings or {})}
     sizes, cap = _first_stage(s, cfg)
     choice = {"objective": cfg["objective"], "custom_kwh": cfg["custom_kwh"],
@@ -185,4 +196,6 @@ def _results_for_page(out: dict, s: Setup, sizing_settings: dict | None) -> dict
               "fine_grid_kwh": cfg["fine_grid_kwh"], "fine_window_kwh": cfg["fine_window_kwh"],
               "regime_rule": bool(s.tariff.rule), "threshold_h": s.tariff.dup_threshold_h,
               "dispatch_kwh_per_kwh": s.battery.dispatch_kwh(1.0), "ancillary_on": _ancillary_on(s)}
-    return results_for_page(out, s.dt, choice, ID)
+    summary = {k: v for k, v in out["summary"].items() if k != "sweep"}
+    return results_for_page(ID, battery=battery_page(out, s.dt, choice), summary=summary,
+                            electricity=electricity_page(elec), system=system_page("sequential", cost))

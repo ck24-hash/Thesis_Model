@@ -101,7 +101,7 @@ def inspect_block(block: str, path: str, year: int, columns: dict | None = None)
     for c in data:
         s = frame[names[c["role"]]].astype(float)
         entry = {k: c[k] for k in ("role", "about", "unit", "kind")} | {"column": names[c["role"]]}
-        if c["kind"] == "price":
+        if c["kind"] in ("price", "state"):   # a level: its mean, not a total
             monthly = s.groupby(s.index.month).mean()
             entry.update(mean=s.mean(), min=s.min(), max=s.max(), missing=int(s.isna().sum()),
                          negative_h=float((s < 0).sum() * STEP_HOURS))
@@ -140,8 +140,7 @@ class Run:
         self.error = None
         self.results = None
         self.files: dict = {}
-        self.done = 0
-        self.total = 0
+        self.done: dict = {}    # sizes solved, per study (block)
 
 
 RUN = Run()
@@ -187,7 +186,7 @@ def _run(adapter, case: dict, out_dir: Path):
         with RUN.lock:
             RUN.results = page
             RUN.files = {**files, "case": str(case_path), "folder": str(out_dir)}
-            RUN.state, RUN.stage = "done", max(s for s, _, _ in adapter.STAGE_LABELS)
+            RUN.state, RUN.stage = "done", max(label[0] for label in adapter.STAGE_LABELS)
     except Exception as exc:
         with RUN.lock:
             RUN.state = "error"
@@ -202,7 +201,7 @@ def run_status(since: int = 0) -> dict:
         elapsed = ((RUN.finished or time.time()) - RUN.started) if RUN.started else 0
         return {"state": RUN.state, "run_type": RUN.run_type, "stage": RUN.stage, "log": RUN.log[since:],
                 "log_length": len(RUN.log), "elapsed": elapsed, "error": RUN.error, "files": RUN.files,
-                "done": RUN.done, "total": RUN.total}
+                "done": RUN.done}
 
 
 def run_results() -> dict:

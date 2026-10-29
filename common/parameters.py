@@ -88,25 +88,34 @@ def eur_to_local(currency: str, fx: dict | None = None) -> float:
     return convert(1.0, "EUR", currency, fx) if currency != "EUR" else 1.0
 
 
+def is_money(obj) -> bool:
+    """A money object: {"amount": x, "currency": c} or {"tiers": [...], "currency": c}, nothing else. A group of
+    settings that only has an "amount" among other keys (a subsidy) is not one."""
+    return (isinstance(obj, dict) and "currency" in obj and ("amount" in obj or "tiers" in obj)
+            and set(obj) <= {"amount", "tiers", "currency"})
+
+
 def resolve_money(obj, currency: str, fx: dict):
     """Replace every money object in obj by its value in `currency`."""
-    if isinstance(obj, dict):
-        if "currency" in obj and "amount" in obj:
+    if is_money(obj):
+        if "amount" in obj:
             return convert(obj["amount"], obj["currency"], currency, fx)
-        if "currency" in obj and "tiers" in obj:
-            return [[size, convert(price, obj["currency"], currency, fx)] for size, price in obj["tiers"]]
+        return [[size, convert(price, obj["currency"], currency, fx)] for size, price in obj["tiers"]]
+    if isinstance(obj, dict):
         return {k: resolve_money(v, currency, fx) for k, v in obj.items()}
     if isinstance(obj, list):
         return [resolve_money(v, currency, fx) for v in obj]
     return obj
 
 
-def in_currency(obj, currency: str):
-    """Overrides are in the market's currency: a money object given without a currency gets it, so it is not read in
-    the currency of the default it is merged into."""
+def in_currency(obj, currency: str, base=None):
+    """Overrides are in the market's currency: an override of a money object given without a currency gets it, so it
+    is not read in the currency of the default it is merged into. base: the defaults at the same place, to tell a
+    money object ({"amount", "currency"}) from a group of settings that has an "amount" key (a subsidy)."""
     if isinstance(obj, dict):
-        out = {k: in_currency(v, currency) for k, v in obj.items()}
-        if ("amount" in obj or "tiers" in obj) and "currency" not in obj:
+        b = base if isinstance(base, dict) else {}
+        out = {k: in_currency(v, currency, b.get(k)) for k, v in obj.items()}
+        if is_money(b) and ("amount" in obj or "tiers" in obj) and "currency" not in obj:
             out["currency"] = currency
         return out
     return obj
@@ -115,7 +124,7 @@ def in_currency(obj, currency: str):
 def finish(params: dict, overrides: dict | None, currency: str, fx: dict | None = None) -> dict:
     """The block's parameters with its overrides merged in and every money value in the market's currency."""
     fx = fx or fx_rates()
-    return resolve_money(deep_merge(params, in_currency(overrides or {}, currency)), currency, fx)
+    return resolve_money(deep_merge(params, in_currency(overrides or {}, currency, params)), currency, fx)
 
 
 # -- overrides: one dict for the whole run, each value to the block that owns it ---------------------------------------

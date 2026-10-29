@@ -11,7 +11,9 @@ ADAPTERS = {system_study.ID: system_study, battery_study.ID: battery_study}
 
 def fits(adapter, blocks) -> bool:
     chosen = set(blocks)
-    return set(adapter.BLOCKS_REQUIRED) <= chosen <= set(adapter.BLOCKS_ALLOWED)
+    one_of = getattr(adapter, "BLOCKS_ONE_OF", None)   # at least one of these, when the adapter says so
+    return (set(adapter.BLOCKS_REQUIRED) <= chosen <= set(adapter.BLOCKS_ALLOWED)
+            and (not one_of or bool(chosen & set(one_of))))
 
 
 def for_blocks(blocks: list[str]):
@@ -22,6 +24,9 @@ def for_blocks(blocks: list[str]):
         if fits(adapter, chosen):
             return adapter, None
         missing = [b for b in adapter.BLOCKS_REQUIRED if b not in chosen]
+        one_of = getattr(adapter, "BLOCKS_ONE_OF", None)
+        if one_of and not chosen & set(one_of):
+            missing.append(" or ".join(one_of))
         extra = sorted(chosen - set(adapter.BLOCKS_ALLOWED))
         reasons.append(f"{adapter.NAME}: " + "; ".join(
             ([f"needs {', '.join(missing)}"] if missing else []) + ([f"cannot run {', '.join(extra)}"] if extra else [])))

@@ -2,11 +2,12 @@
 
 The blocks in `elements/` hold the technical side of each part of the system. What applies across them is here, one
 folder per item, each with a `block.py` (its `ID`, the parameters it owns `OWNS`, `load_params()`, a class) and its own
-`params/`. All values come from the reference model's files (`elements/battery_reference/params`).
+`params/`. The values come from the reference model's files (`elements/battery_reference/params`), except the gas
+boiler's and the heat storage's, which are placeholders (TO CHECK).
 
 | Item | What it holds | Parameter files |
 |---|---|---|
-| `commercial/` | the Voltiris business model (direct sales or EaaS, `business_model.py`), investment prices (Voltiris per Wp, battery price tiers, battery replacements), lifetimes (PV life, also the battery study's horizon; battery life), the revenue rate of the battery's ancillary reserve | `business_models/`, `capex/default.json`, `finance/default.json`, `ancillary/<country>.json` (rate) |
+| `commercial/` | the Voltiris business model (direct sales or EaaS, `business_model.py`), investment prices (Voltiris per Wp, battery price tiers, battery replacements, gas boiler per kW of heat, heat storage per kWh), O&M of the gas boiler (fixed per kW and year, variable per MWh of heat) and of the heat storage (fixed per kWh and year), lifetimes (PV life, also the battery study's horizon; battery, boiler and heat storage lives), the revenue rate of the battery's ancillary reserve | `business_models/`, `capex/default.json`, `finance/default.json`, `ancillary/<country>.json` (rate) |
 | `subsidies/` | subsidies on the Voltiris modules and on the battery: percent, fixed amount, or percent up to a threshold size (CH's OCAN rule from the yearly load) | `subsidies/<country>/_country.json`, `<region>.json` |
 | `ems/` | the energy management system: fixed yearly cost, hardware bought once with the battery, fees on the ancillary revenue and on the bill saving (`ems.py`) | `ems/default.json` |
 

@@ -1,0 +1,37 @@
+{
+  "year": 2026,
+  "market": {
+    "country": "CH",
+    "region": "GE",
+    "utility": "SIG",
+    "year": 2026
+  },
+  "blocks": {
+    "greenhouse": {
+      "input_file": "greenhouse_demand_2026.xlsx",
+      "co2_mode": "required"
+    },
+    "grid": {
+      "input_file": "grid_day_ahead_2026.xlsx",
+      "import_max_kw": 750,
+      "export_max_kw": 750,
+      "regime": {
+        "auto": true
+      }
+    },
+    "gas_supply": {
+      "input_file": "gas_price_2026_daily.xlsx"
+    },
+    "ng_boiler": {
+      "sizing": {
+        "objective": "lifetime_cost"
+      }
+    }
+  },
+  "general": {
+    "commercial": {
+      "business_model": "direct_sales"
+    }
+  },
+  "tag": "blocks_CH_boiler"
+}

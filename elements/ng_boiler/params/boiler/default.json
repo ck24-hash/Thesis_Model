@@ -1,0 +1,7 @@
+{
+  "_about": "Natural gas boiler: gas in, heat and flue gas CO2 out, sized in kW of heat. TO CHECK: the values are placeholders until sourced values are given.",
+  "efficiency": 0.9,
+  "efficiency_note": "kWh of heat per kWh of gas (lower heating value). TO CHECK: placeholder",
+  "co2_use_frac": 1.0,
+  "co2_use_note": "share of the flue gas CO2 that can go to the greenhouse after cleaning; the rest is vented. TO CHECK: placeholder (thesis.md 3.6 and 3.10)"
+}

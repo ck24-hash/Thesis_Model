@@ -1,7 +1,7 @@
-"""Commercial: what the system's parts cost and earn, apart from the grid tariff (elements/grid) and the subsidies
-(general/subsidies): the Voltiris business model (direct sales or EaaS, business_model.py), the investment prices (PV
-per Wp, battery price tiers, battery replacements), the lifetimes, and the revenue rate of the battery's ancillary
-reserve. From elements/battery_reference: blocks/capex.py, blocks/business_model.py and the money parts of
+"""Commercial: what the system's parts cost and earn, apart from the grid tariff (elements/grid), the gas price
+(elements/gas_supply) and the subsidies (general/subsidies): the Voltiris business model (direct sales or EaaS,
+business_model.py), the investment prices (PV per Wp, battery price tiers, battery replacements, gas boiler per kW and
+its O&M, heat storage per kWh and its O&M), the lifetimes, and the revenue rate of the battery's ancillary reserve. From elements/battery_reference: blocks/capex.py, blocks/business_model.py and the money parts of
 engine/setup.py."""
 from __future__ import annotations
 
@@ -57,6 +57,35 @@ class Commercial:
 
     def battery_gross(self, size_kwh: float) -> float:
         return size_kwh * self.battery_price_per_kwh(size_kwh)
+
+    # -- gas boiler ---------------------------------------------------------------------------------------------------
+    @property
+    def boiler_life_yr(self) -> float:
+        return self.params["finance"]["boiler_life_yr"]
+
+    def boiler_capex(self, size_kw_th: float) -> float:
+        return size_kw_th * self.capex["boiler_per_kw_th"]
+
+    def boiler_fixed_om(self, size_kw_th: float) -> float:
+        """Yearly fixed operation and maintenance."""
+        return size_kw_th * self.capex["boiler_fixed_om_per_kw_year"]
+
+    @property
+    def boiler_var_om_per_kwh(self) -> float:
+        """Variable operation and maintenance per kWh of heat."""
+        return self.capex["boiler_var_om_per_mwh_heat"] / 1000
+
+    # -- heat storage -------------------------------------------------------------------------------------------------
+    @property
+    def thermal_storage_life_yr(self) -> float:
+        return self.params["finance"]["thermal_storage_life_yr"]
+
+    def thermal_storage_capex(self, size_kwh: float) -> float:
+        return size_kwh * self.capex["thermal_storage_per_kwh"]
+
+    def thermal_storage_fixed_om(self, size_kwh: float) -> float:
+        """Yearly fixed operation and maintenance."""
+        return size_kwh * self.capex["thermal_storage_fixed_om_per_kwh_year"]
 
     def battery_replacement_cost(self, size_kwh: float, horizon_yr: float) -> float:
         """All replacements within the horizon (the PV life), each at battery_replacement_frac of the gross price,

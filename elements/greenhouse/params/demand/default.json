@@ -1,0 +1,6 @@
+{
+  "_about": "How the greenhouse's heat and CO2 demand enter the optimisation. The two penalties are solver devices, not prices: a large cost per unit not delivered, so the optimiser leaves demand unmet only when no block can cover it. A size that leaves demand unmet is reported and not chosen.",
+  "unmet_heat_penalty_per_kwh": 10,
+  "unmet_co2_penalty_per_kg": 10,
+  "penalty_note": "in the market's currency, far above any real cost of heat or CO2, so they never compete with them; they only keep the optimisation solvable when a block is too small"
+}

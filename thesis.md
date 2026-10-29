@@ -237,6 +237,12 @@ Keep this list in the code repo and update it. IDs are used in code comments.
 - A12 Voltiris effect on greenhouse heat and CO2 demand is ignored unless data is provided.
 - A13 Grid emission factor is constant per country by default. Option: hourly.
 - A14 Single greenhouse, one electrical connection point, no internal network losses.
+- A15 Heat and CO2 demand not covered by the system is a slack at a high penalty (a solver device, not a price), reported as unmet. A size that leaves demand unmet does not count as covering it.
+- A16 Sizing: by default the sized blocks (boiler, heat storage, battery) are sized together in one optimisation for the site's lowest yearly cost, and each block's value is the yearly cost without it (others re-sized) minus with it. Option "sequential": each block sized alone with the others fixed (boiler, then heat storage, then battery); then the heat storage cannot make the boiler smaller.
+- A17 All the CO2 of the gas burnt counts as emitted, including the part dosed into the greenhouse.
+- A18 Heat storage losses are a share of the heat stored per hour: constant, per season, or from the outside temperature with a fixed mean tank temperature (the tank temperature does not follow its state of charge).
+- A19 Yearly cost of an investment = investment / life, no discounting (the rule of the lifetime profit and lifetime cost). A discount rate is not modelled yet. TO CHECK with the supervisors.
+- A20 In the joint sizing the battery's price per kWh, usable share and reserve are taken at a reference size (refined once at the size found); its EMS costs are checked after the optimisation; the one-meter rules use the reference size's power.
 
 ## 6. Constraints (summary)
 

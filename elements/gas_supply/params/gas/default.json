@@ -1,0 +1,9 @@
+{
+  "_about": "Natural gas bought from the network. The price comes from the block's input file (EUR per kWh of gas, lower heating value), or from price_per_kwh when the block has no file. All the CO2 of the gas burnt counts as emitted.",
+  "emission_factor_kg_per_kwh": 0.202,
+  "emission_factor_note": "kg CO2 per kWh of natural gas burnt (lower heating value): IPCC 2006 Guidelines default, 56.1 t CO2/TJ. TO CHECK against the national inventory value",
+  "co2_levy_per_kg": 0,
+  "co2_levy_note": "carbon levy per kg CO2 of the gas burnt, in the market's currency. TO CHECK: placeholder 0 (CH has a CO2 levy on heating fuels, with exemptions to check for greenhouses; FR and NL to check)",
+  "price_per_kwh": null,
+  "price_note": "fixed gas price per kWh (market currency), used only when the block has no input file"
+}

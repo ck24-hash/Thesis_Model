@@ -1,15 +1,17 @@
 # Plan: the blocks and how they work together
 
-Written 28 Oct 2026, updated the same day after step 1. The thesis logic is in `thesis.md`; this file says how the
+Written 28 Oct 2026, updated the same day after step 1, and on 29 Oct 2026 (step 2 in part). The thesis logic is in `thesis.md`; this file says how the
 code gets there.
 
 ## 1. Where we are
 
-- `elements/`: the blocks greenhouse (electricity load), Voltiris, existing PV, grid and battery, their technical side.
+- `elements/`: the blocks greenhouse (electricity load, heat and CO2 demand), Voltiris, existing PV, grid, battery,
+  gas supply, gas boiler and heat storage, their technical side.
   Each reads its own input file (`examples/blocks/README.md` lists what each needs, with an example).
 - `general/`: what is not a physical block: commercial (business model, prices, lifetimes, ancillary rate),
   subsidies, EMS (`general/README.md`). The market is chosen once for the run.
-- `system/`: the engine that builds one network from the chosen blocks and runs the battery study.
+- `system/`: the engine that builds one network from the chosen blocks, runs the gas boiler, heat storage and battery
+  studies, and reports the electricity side of every system.
 - `elements/battery_reference`: Jesse's PV + battery model, frozen. The blocks give the same results to the last digit
   (section 5).
 - `interface/`: a System page to choose the blocks, then one page per chosen block, then Run and Results. For the
@@ -79,14 +81,16 @@ solve (`dispatch.py`), the bills, self-consumption and monthly tables (`flows.py
 
 To build with the next blocks:
 
-1. Buses for heat and CO2 (and gas, ethanol, low-temperature heat) when a chosen block uses them.
+1. Buses for heat and CO2 (and gas, ethanol, low-temperature heat) when a chosen block uses them. Done for heat,
+   CO2 and gas (29 Oct 2026).
 2. A plain run of a system (no sizing): flows of every block, balance check, KPIs (self-sufficiency in heat, CO2 and
    electricity, self-consumption; thesis.md section 10), money and emissions.
 3. Comparison against a reference run: the same system without the block being sized (block study), or another
    scenario (Baseline for S1 to S4, thesis.md section 11).
 
-Sizing: a block study sweeps one block's size with the rest fixed. Sizing every block together in one solve is left
-for later (decided 28 Oct 2026).
+Sizing: a block study sweeps one block's size with the rest fixed. Since 29 Oct 2026 the sized blocks are sized
+together by default (`system/joint.py`: one optimisation for the site's lowest yearly cost, then each block left out
+for its value), and the site's yearly cost is reported for every run (`system/costs.py`).
 
 ## 5. Step 1: the battery model split into blocks (done 28 Oct 2026)
 
@@ -125,14 +129,16 @@ able to run it.
 1. `system/` + greenhouse (electricity) + Voltiris + existing PV + grid + battery, reproducing the reference (done
    28 Oct 2026).
 2. Greenhouse heat and CO2 demand, gas supply, gas boiler, thermal storage, and the plain system run of section 4:
-   Baseline runs.
+   Baseline runs. Done 29 Oct 2026: heat and CO2 demand, gas supply, gas boiler and heat storage with their sizing
+   studies (values TO CHECK), the electricity side of every run, the joint sizing and the site's yearly cost. To
+   do: comparing scenarios (how, to decide), real data.
 3. CHP: S1.
 4. Heat pump, ambient source: S2, then S2 + battery. Decide the one-meter question (section 5).
 5. External liquid CO2 and the electric backup heater (A1): S2 + battery + external CO2.
 6. Data center and the heat pump on its waste heat: S3 and its variants.
 7. SOFC on ethanol: S4.
 8. Inputs for CH, FR and NL, scenario comparison tables, sensitivity runs (thesis.md sections 11 to 13).
-9. Sizing all blocks together.
+9. Sizing all blocks together: done for the boiler, heat storage and battery (29 Oct 2026); each new block joins it.
 
 ## 7. Decisions
 

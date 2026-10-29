@@ -23,3 +23,8 @@ the payback table with Voltiris.
 Its price tiers, replacements, life and the reserve's revenue rate are in `general/commercial`, its subsidy in
 `general/subsidies`, its EMS costs in `general/ems`. To leave the ancillary services out of a run, set
 `{"ancillary": {"rate_per_kw_year": 0, "reserve": {"mode": "percent", "frac": 0}}}` in its overrides.
+
+**Joint sizing** (the default with two sized blocks or more, `system/README.md`): the size comes from one optimisation
+with the other sized blocks, for the site's lowest yearly cost; this study then runs at that size for its tables. The
+settings above apply with `"system": {"sizing": "sequential"}`, or when this is the only sized block; the objective
+`custom` fixes the size in both.
