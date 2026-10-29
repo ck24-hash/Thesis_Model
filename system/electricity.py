@@ -7,7 +7,11 @@ Per step (kW), with the site's PV (Voltiris + existing PV, one generator) split 
     PV to battery     charging, up to the step's PV surplus
     PV exported       the rest of the PV
     battery to load   discharging, up to the load the PV leaves
+    battery to grid   the rest of the discharging (exported)
     grid to load      the rest of the load
+    grid to battery   the rest of the charging (bought from the grid)
+so that load = PV to load + battery to load + grid to load, PV = PV to load + PV to battery + PV exported, grid
+import = grid to load + grid to battery and grid export = PV exported + battery to grid.
 Self-consumption and self-sufficiency are the reference model's (flows.sc_ss: PV through the battery counts after its
 round-trip loss). The bill by component is flows.bill; the bill without PV (all the load from the grid, the starting
 regime) gives what the PV, and the battery, save on the bill.
@@ -45,8 +49,12 @@ def split(res: pd.DataFrame, s: System) -> pd.DataFrame:
         "grid_to_load": (load - pv_to_load - battery_to_load).clip(lower=0),
         "pv_to_battery": pv_to_battery,
         "pv_exported": (pv - pv_to_load - pv_to_battery).clip(lower=0),
+        "battery_to_grid": (discharge - battery_to_load).clip(lower=0),
+        "grid_to_battery": (charge - pv_to_battery).clip(lower=0),
+        "pv": pv,
         "voltiris": pv * volt_share,
         "existing": pv * (1 - volt_share),
+        "battery_soc": res["battery_soc"] if "battery_soc" in res.columns else pv * 0.0,
     }, index=res.index)
 
 
@@ -99,6 +107,8 @@ def case(res: pd.DataFrame, s: System, regime: str, no_pv_regime: str, label: st
         "Grid to load (MWh)": sums["grid_to_load"].values,
         "PV to battery (MWh)": sums["pv_to_battery"].values,
         "PV exported (MWh)": sums["pv_exported"].values,
+        "Battery to grid (MWh)": sums["battery_to_grid"].values,
+        "Grid to battery (MWh)": sums["grid_to_battery"].values,
         "SC (%)": month["SC (%)"].values, "SS (%)": month["SS (%)"].values,
         "Import cost": month["Import cost"].values, "Capacity charge": month["Capacity charge"].values,
         "Export revenue": month["Export rev"].values, "EaaS fee": month["EaaS fee"].values,

@@ -153,20 +153,32 @@ function blockSmall(id) {
   }
   return id === "battery" ? "technology, reserve, sizing" : id === "ng_boiler" ? "efficiency, sizing" : "settings";
 }
+// the menu's groups (the blocks under System, the items under General) can be folded; the choice is kept in this browser
+S.navFolded = new Set();
+try { S.navFolded = new Set(JSON.parse(localStorage.getItem("navFolded") || "[]")); } catch (e) { /* no storage: all open */ }
 function renderNav() {
   const item = (step, title, small, cls = "") => `<button data-step="${step}" class="sub ${cls}" title="${esc(title)}: ${esc(small)}"><i></i><span>${esc(title)}<small>${esc(small)}</small></span></button>`;
+  const fold = (group, count) => `<button type="button" class="caret" data-group="${group}" aria-expanded="${!S.navFolded.has(group)}" title="${S.navFolded.has(group) ? `Show the ${count} items` : "Hide the items"}">${S.navFolded.has(group) ? "&#9656;" : "&#9662;"}</button>`;
+  const sub = (group, html) => `<div class="nav-sub" data-group="${group}"${S.navFolded.has(group) ? " hidden" : ""}>${html}</div>`;
+  const blocks = chosenBlocks(), general = generalShown();
   $("steps").innerHTML =
-    `<button data-step="system"><b>1</b><span>System<small>the greenhouse and its blocks</small></span></button>` +
-    chosenBlocks().map((id) => item(pageOf(id), blockInfo(id).name, blockSmall(id), isBuilt(id) ? "" : "planned")).join("") +
+    `<div class="nav-row"><button data-step="system"><b>1</b><span>System<small>the greenhouse and its blocks</small></span></button>${fold("system", blocks.length)}</div>` +
+    sub("system", blocks.map((id) => item(pageOf(id), blockInfo(id).name, blockSmall(id), isBuilt(id) ? "" : "planned")).join("")) +
     `<button data-step="inputs"><b>2</b><span>Input data<small>every curve: year, month, week</small></span></button>` +
-    `<div class="nav-group"><b>3</b><span>General<small>not tied to one block</small></span></div>` +
-    generalShown().map((g) => item(g.id, g.name, g.small)).join("") +
+    `<div class="nav-row"><div class="nav-group"><b>3</b><span>General<small>not tied to one block</small></span></div>${fold("general", general.length)}</div>` +
+    sub("general", general.map((g) => item(g.id, g.name, g.small)).join("")) +
     `<button data-step="run"><b>4</b><span>Run<small>check, case file, progress</small></span></button>` +
     `<button data-step="results" class="${S.results ? "done" : ""}"><b>5</b><span>Results<small>electricity, sizes, bills, dispatch</small></span></button>`;
-  $("steps").querySelectorAll("button").forEach((b) => {
+  $("steps").querySelectorAll("button[data-step]").forEach((b) => {
     b.classList.toggle("active", b.dataset.step === S.step);
     b.addEventListener("click", () => showStep(b.dataset.step));
   });
+  $("steps").querySelectorAll("button.caret").forEach((b) => b.addEventListener("click", () => {
+    const g = b.dataset.group;
+    if (S.navFolded.has(g)) S.navFolded.delete(g); else S.navFolded.add(g);
+    try { localStorage.setItem("navFolded", JSON.stringify([...S.navFolded])); } catch (e) { /* the choice lasts until reload */ }
+    renderNav();
+  }));
   document.querySelectorAll("[data-nav]").forEach((box) => {
     const steps = order(), i = steps.indexOf(S.step);
     const prev = steps[i - 1], next = steps[i + 1];
@@ -309,10 +321,52 @@ function renderDiagram() {
   });
   $("diagram").innerHTML = `<svg viewBox="0 20 1000 452" aria-label="The greenhouse and its energy system: click a block to add or remove it">${lines}${greenhouseSvg()}${nodes}</svg>`;
 }
+// the links between blocks (common/blocks.json): fixed blocks are always in; a follower (the gas supply) is in exactly
+// when one of the blocks it follows is; a block that lost what it needs (a heat storage without a heat source) is out
+function linked(blocks) {
+  const set = new Set(blocks);
+  S.options.blocks.filter((b) => b.fixed).forEach((b) => set.add(b.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    S.options.blocks.forEach((b) => {
+      const on = set.has(b.id);
+      if (b.follows && b.follows.some((x) => set.has(x)) !== on) { if (on) set.delete(b.id); else set.add(b.id); changed = true; return; }
+      if (on && ((b.needs_one_of && !b.needs_one_of.some((x) => set.has(x)))
+        || (b.needs || []).some((x) => !set.has(x) && !blockInfo(x).follows))) { set.delete(b.id); changed = true; }
+    });
+  }
+  return set;
+}
+const names = (ids) => ids.map((x) => blockInfo(x).name).join(", ");
+function linkReason(id) {
+  const b = blockInfo(id);
+  if (b.follows) return `it comes with the ${b.follows.filter(isBuilt).map((x) => blockInfo(x).name.toLowerCase()).join(" or ")}`;
+  if (b.needs_one_of) return `it needs ${b.needs_one_of_label || "one of " + names(b.needs_one_of)}`;
+  return `it needs ${names(b.needs || [])}`;
+}
 function toggleBlock(id) {
-  if (has(id)) S.system.blocks.delete(id); else S.system.blocks.add(id);
+  const b = blockInfo(id);
+  if (b.fixed) return toast(`${b.name} is always in the system.`);
+  if (b.follows) {
+    const with_ = b.follows.filter(isBuilt);
+    return toast(`${b.name} comes with the ${with_.map((x) => blockInfo(x).name.toLowerCase()).join(" or ")}: it is added and taken out with ${with_.length > 1 ? "them" : "it"}.`);
+  }
+  const before = new Set(S.system.blocks), next = new Set(before);
+  if (has(id)) next.delete(id);
+  else {
+    next.add(id);
+    if (b.needs_one_of && !b.needs_one_of.some((x) => next.has(x))) next.add(b.needs_one_of.find(isBuilt) || b.needs_one_of[0]);
+    (b.needs || []).forEach((x) => next.add(x));
+  }
+  const after = linked(next);
+  const added = [...after].filter((x) => !before.has(x) && x !== id), removed = [...before].filter((x) => !after.has(x) && x !== id);
+  S.system.blocks = after;
   const preset = S.options.presets.find((p) => p.id === S.system.preset);
   if (preset && !sameSet(new Set(preset.blocks), S.system.blocks)) S.system.preset = null;
+  const notes = [];
+  if (added.length) notes.push(`Also added: ${added.map((x) => `${blockInfo(x).name} (${x === b.needs_one_of?.find(isBuilt) ? `the ${b.name.toLowerCase()} ${linkReason(id).replace("it ", "")}` : linkReason(x)})`).join(", ")}.`);
+  if (removed.length) notes.push(`Also taken out: ${removed.map((x) => `${blockInfo(x).name} (${linkReason(x)})`).join(", ")}.`);
+  if (notes.length) toast(notes.join(" "));
   S.preview = null;
   systemChanged();
 }
@@ -323,6 +377,32 @@ $("diagram").addEventListener("keydown", (ev) => {
 });
 
 // every run type that can run these blocks (the first is the default), or why none can
+// scenario B: this system without some blocks (it can only leave blocks out); the links between blocks apply
+S.compare = new Set();
+const compareOn = () => $("cmpOn").checked && S.compare.size > 0 && S.runType === "blocks";
+function scenarioB() {
+  const kept = linked(new Set(chosenBlocks().filter((x) => !S.compare.has(x))));
+  return { kept: chosenBlocks().filter((x) => kept.has(x)), also: chosenBlocks().filter((x) => !kept.has(x) && !S.compare.has(x)) };
+}
+function renderCompare() {
+  $("compareCard").hidden = S.runType !== "blocks";
+  const removable = chosenBlocks().filter((b) => isBuilt(b) && !blockInfo(b).fixed && !blockInfo(b).follows);
+  [...S.compare].forEach((b) => { if (!removable.includes(b)) S.compare.delete(b); });
+  $("cmpBox").hidden = !$("cmpOn").checked;
+  $("cmpBlocks").innerHTML = removable.length ? removable.map((b) => `<label class="chip"><input type="checkbox" data-block="${b}" ${S.compare.has(b) ? "checked" : ""}>${esc(blockInfo(b).name)}</label>`).join("")
+    : '<span class="muted">No block can be left out: greenhouse and grid are always in.</span>';
+  $("cmpBlocks").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
+    if (i.checked) S.compare.add(i.dataset.block); else S.compare.delete(i.dataset.block);
+    S.preview = null; renderCompare();
+  }));
+  const b = scenarioB();
+  $("cmpInfo").innerHTML = S.compare.size
+    ? `<b>A</b>: ${esc(names(chosenBlocks()))}.<br><b>B</b>: ${esc(names(b.kept))}.` +
+      (b.also.length ? `<br>Also left out in B: ${b.also.map((x) => `${esc(blockInfo(x).name)} (${esc(linkReason(x))})`).join(", ")}.` : "")
+    : "Tick at least one block for scenario B.";
+}
+$("cmpOn").addEventListener("change", () => { S.preview = null; renderCompare(); });
+
 // the sized blocks, and whether they are sized together
 const SIZED = ["ng_boiler", "thermal_storage", "battery"];
 const sizingMode = () => document.querySelector("input[name=sizing]:checked").value;
@@ -346,7 +426,7 @@ function runTypeFor(blocks) {
 $("runTypeSelect").addEventListener("change", () => { S.runTypeWanted = $("runTypeSelect").value; systemChanged(); });
 function sameSet(a, b) { return a.size === b.size && [...a].every((x) => b.has(x)); }
 function setSystem(blocks, preset) {
-  S.system = { preset: preset || null, blocks: new Set(blocks) };
+  S.system = { preset: preset || null, blocks: linked(blocks) };
   if (!S.system.preset) {
     const match = S.options.presets.find((p) => sameSet(new Set(p.blocks), S.system.blocks));
     if (match) S.system.preset = match.id;
@@ -377,6 +457,7 @@ function systemChanged() {
   $("runInfo").textContent = fit.id ? "" : "Choose a system that runs on the System page.";
   $("co2Seg").closest(".card").hidden = !has("ng_boiler");
   $("sizingRow").hidden = !(fit.id === "blocks" && SIZED.filter(has).length >= 2);
+  renderCompare();
   if (S.params) renderKeyParams();
   if (changed && fit.id && $("mUtility").value) loadParamsSoon();
   renderNav();
@@ -448,6 +529,7 @@ function collectCase() {
     overrides: $("sAncillary").checked ? currentOverrides() : deepMerge(currentOverrides(), ANCILLARY_OFF),
     tag: $("rTag").value.trim() || "study",
     system: { preset: S.system.preset, run_type: S.runType, sizing: sizingMode() },
+    compare: compareOn() ? { without: [...S.compare] } : undefined,
   };
 }
 
@@ -456,6 +538,8 @@ function applyCase(c) {
   const market = c.market || {};
   S.runTypeWanted = (c.system || {}).run_type || null;
   document.querySelector(`input[name=sizing][value=${(c.system || {}).sizing === "sequential" ? "sequential" : "joint"}]`).checked = true;
+  S.compare = new Set((c.compare || {}).without || []);
+  $("cmpOn").checked = S.compare.size > 0;
   setSystem(Object.keys(blocks), (c.system || {}).preset);
   $("dataYear").value = c.year || market.year || 2026;
   Object.keys(S.options.block_columns).forEach((id) => {
@@ -1184,8 +1268,8 @@ function renderPreview() {
     $("sPlan").innerHTML = `The model will solve <b>${st.sizes.length} sizes</b>: ${st.sizes.map((x) => fmt(x)).join(", ")} kWh of heat ` +
       `(automatic sizes follow a boiler of about ${fmt(st.boiler_kw_estimate)} kW; the run uses the size the boiler study chooses). Objective: <b>${STORAGE_OBJECTIVE[st.objective]}</b>.`;
   }
-  const jz = p.sizing && p.sizing.mode === "joint";
-  const jointNote = (block) => (jz && p.sizing.plan[block] === null
+  const js = p.joint_sizing, jz = js && js.mode === "joint";
+  const jointNote = (block) => (jz && js.plan[block] === null
     ? " <br><b>Sizing together</b> (System page): the size comes from the joint optimisation, not from this list; the model then runs this block's study at that size." : "");
   if (b) $("bPlan").innerHTML += jointNote("ng_boiler");
   if (st) $("sPlan").innerHTML += jointNote("thermal_storage");
@@ -1196,7 +1280,7 @@ function renderPreview() {
     (z.fine_grid_kwh && z.fine_grid_kwh.length ? `, then those of ${z.fine_grid_kwh.map((x) => fmt(x)).join(", ")} kWh that are within ${fmt(z.fine_window_kwh)} kWh of the best size` : "") +
     `. Objective: <b>${z.objective}</b>${z.objective === "custom" ? ` (${fmt(z.custom_kwh)} kWh)` : ""}.` +
     (t.has_rule ? ` Sizes whose DUP crosses ${fmt(t.threshold_h)} h are solved twice more.` : "") +
-    (jz && p.sizing.plan.battery === null ? `<br><b>Sizing together</b> (System page): the size comes from the joint optimisation (at most ${fmt(p.sizing.battery_max_kwh)} kWh), not from this list; the battery study then runs at that size.` : "");
+    (jz && js.plan.battery === null ? `<br><b>Sizing together</b> (System page): the size comes from the joint optimisation (at most ${fmt(js.battery_max_kwh)} kWh), not from this list; the battery study then runs at that size.` : "");
 }
 
 // -- run ------------------------------------------------------------------------------------------------------------
@@ -1209,7 +1293,7 @@ $("runBtn").addEventListener("click", async () => {
     const r = await api("/api/run", { case: collectCase(), output_dir: $("rFolder").value.trim() });
     $("runInfo").textContent = `Results will be written to ${r.output_dir}`;
     $("runCard").hidden = false; $("runLog").textContent = ""; $("runError").textContent = "";
-    $("runSteps").innerHTML = S.options.run_types[r.run_type].stages.filter((s) => !s.block || (s.block === "joint" ? jointSizing() : has(s.block))).map((s) =>
+    $("runSteps").innerHTML = S.options.run_types[r.run_type].stages.filter((s) => !s.block || (s.block === "joint" ? jointSizing() : s.block === "compare" ? compareOn() : has(s.block))).map((s) =>
       `<li data-stage="${s.stage}" data-block="${s.block || ""}">${esc(s.label)}${s.counts ? ' <span class="count"></span>' : ""}</li>`).join("");
     S.logLength = 0; $("runBtn").disabled = true;
     const t = $("topStatus"); t.dataset.state = "running"; t.className = "top-status running"; t.textContent = `Running ${r.tag}…`;
@@ -1276,6 +1360,7 @@ function renderResults() {
   $("res-battery_study").hidden = !bat;
   document.querySelector('#resTabs [data-rtab="electricity"]').hidden = !R.electricity;
   document.querySelector('#resTabs [data-rtab="system"]').hidden = !R.system;
+  document.querySelectorAll("#resTabs .ct").forEach((b) => (b.hidden = !R.compare));
   document.querySelectorAll("#resTabs .bt").forEach((b) => (b.hidden = !bat));
   document.querySelectorAll("#resTabs .ht").forEach((b) => (b.hidden = !boiler));
   document.querySelectorAll("#resTabs .st").forEach((b) => (b.hidden = !storage));
@@ -1285,6 +1370,7 @@ function renderResults() {
     .map(([k, v]) => `<tr><td><code>${k}</code></td><td>${esc(typeof v === "number" ? auto(v) : v === null ? "–" : String(v))}</td></tr>`).join("");
   if (R.electricity) renderElectricity();
   if (R.system) renderSystemCost();
+  if (R.compare) renderComparison();
   if (bat) renderBatteryStudy();
   if (boiler) renderBoilerStudy();
   if (storage) renderStorageStudy();
@@ -1510,6 +1596,40 @@ function renderSystemCost() {
     `<tr><th>Quantities</th><th></th></tr>` + Object.entries(c.other).map(([k, v]) => `<tr><td class="text">${esc(k)}</td><td>${fmt(v, 1)}</td></tr>`).join("");
 }
 
+// scenario A against scenario B
+function renderComparison() {
+  const C = S.results.compare, cu = $("yCur").textContent.replace(" per year", "") || "";
+  const m = (v) => `${fmt(v, 0)} ${cu}`;
+  $("cCur").textContent = `${cu} per year`;
+  const cheaper = C.difference > 0 ? "A" : "B";
+  tiles("cTiles", [
+    ["A: as built", m(C.total_a), "yearly cost of the site", cheaper === "A" ? "accent" : ""],
+    [C.names.b, m(C.total_b), "yearly cost of the site", cheaper === "B" ? "accent" : ""],
+    ["B − A", m(C.difference), C.difference > 0 ? `A is ${m(C.difference)} cheaper per year` : `B is ${m(-C.difference)} cheaper per year`],
+    ["A invests more", m(C.extra_investment), `${m(C.invested_a)} against ${m(C.invested_b)}`],
+    ["A's running saving", `${m(C.running_saving)}/yr`, "B's running cost − A's"],
+    ["Payback of A's extra investment", C.payback_yr == null ? "–" : `${fmt(C.payback_yr, 1)} yr`, "extra investment ÷ running saving"],
+  ]);
+  const left = [...C.without, ...C.also].map((x) => blockInfo(x).name.toLowerCase());
+  $("cWhy").innerHTML = `Scenario B is the same system without ${esc(left.join(", "))}` +
+    (C.also.length ? ` (${esc(C.also.map((x) => `${blockInfo(x).name.toLowerCase()}: ${linkReason(x)}`).join("; "))})` : "") +
+    `, sized the same way (${C.b_mode === "joint" ? "together" : "one at a time"}). ` +
+    (C.difference > 0 ? `With these blocks the site costs <b>${m(C.difference)} less per year</b>, investments spread over their lives included.`
+      : `Without these blocks the site costs <b>${m(-C.difference)} less per year</b>: they do not pay for themselves here.`) +
+    (C.payback_yr != null ? ` A invests ${m(C.extra_investment)} more and saves ${m(C.running_saving)} a year in running costs: it pays back in ${fmt(C.payback_yr, 1)} years.` : "");
+  const T = C.costs, col = (n) => T.columns.indexOf(n);
+  const lines = T.rows.filter((r) => !String(r[col("Item")]).startsWith("Total") && r[col("Part")] !== "Total" && (Math.abs(r[col("A")]) > 0.5 || Math.abs(r[col("B")]) > 0.5));
+  chart("cChart", { type: "bar", data: { labels: lines.map((r) => r[col("Item")]), datasets: [
+    { label: "A", data: lines.map((r) => r[col("A")]), backgroundColor: COLORS.accent },
+    { label: "B", data: lines.map((r) => r[col("B")]), backgroundColor: "#cbd5e1" },
+  ] }, options: { indexAxis: "y", scales: { x: { title: { display: true, text: `${cu} per year` } } } } });
+  $("cTable").innerHTML = `<tr><th>Item</th><th>A</th><th>B</th><th>B − A</th></tr>` + T.rows.map((r) => {
+    const total = String(r[col("Item")]).startsWith("Total") || r[col("Part")] === "Total";
+    return `<tr${total ? ' class="total"' : ""}><td class="text">${esc(r[col("Item")])}</td><td>${fmt(r[col("A")], 0)}</td><td>${fmt(r[col("B")], 0)}</td><td>${fmt(r[col("B - A")], 0)}</td></tr>`;
+  }).join("");
+  renderTable("cFigures", C.figures, { format: (v) => (typeof v === "number" ? fmt(v, Math.abs(v) < 100 ? 1 : 0) : v) });
+}
+
 // the electricity side, for every run: one case without battery, and one with the chosen battery when there is one
 S.ecase = null;
 function renderElectricity() {
@@ -1537,9 +1657,8 @@ function renderElectricity() {
   chart("eMonthly", { type: "bar", data: { labels, datasets: [
     bar("Voltiris to load", col("Voltiris to load (MWh)"), COLORS.pv), bar("Existing PV to load", col("Existing PV to load (MWh)"), COLORS.existing),
     bar("Battery to load", col("Battery to load (MWh)"), COLORS.bat), bar("Grid to load", col("Grid to load (MWh)"), COLORS.imp),
-    bar("PV to battery", neg(col("PV to battery (MWh)")), "#9fd3cd"), bar("PV exported", neg(col("PV exported (MWh)")), COLORS.exp),
     lineOn("Load", col("Load (MWh)"), COLORS.load, "load"),
-  ].filter(some) }, options: { scales: { x, y: { stacked: true, title: { display: true, text: "MWh per month" } } } } });
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "MWh per month" } } } } });
   const direct = col("Voltiris to load (MWh)").map((v, i) => v + col("Existing PV to load (MWh)")[i]);
   chart("eSc", { type: "bar", data: { labels, datasets: [
     bar("PV used directly", direct, COLORS.pv), bar("PV stored in the battery", col("PV to battery (MWh)"), "#9fd3cd"),
@@ -1562,16 +1681,30 @@ function renderElectricity() {
 function drawElecWeek() {
   const E = S.results && S.results.electricity; if (!E || !E.cases[S.ecase]) return;
   const h = E.cases[S.ecase].hourly, week = Number($("eWeek").value), from = week * 168, n = Math.min(168, h.load.length - from);
-  const labels = hourLabels(h.start, from, n), sl = (a) => a.slice(from, from + n), neg = (a) => a.map((v) => -v);
+  const labels = hourLabels(h.start, from, n), sl = (a) => (a || []).slice(from, from + n), neg = (a) => a.map((v) => -v);
   $("eWeekLabel").textContent = `${labels[0].slice(0, 10)} to ${labels[n - 1].slice(0, 10)}`;
   const bar = (label, data, color) => ({ type: "bar", label, data, backgroundColor: color, stack: "s", order: 2, barPercentage: 1, categoryPercentage: 1 });
+  const total = (label, data, color, extra = {}) => ({ type: "line", label, data, borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 1.8, stack: "line", order: 1, ...extra });
+  const some = (d) => d.data.some((v) => Math.abs(v || 0) > 1e-9);
+  const x = { stacked: true, ticks: dayTicks, grid: { display: false } };
   chart("eWeekChart", { type: "bar", data: { labels, datasets: [
     bar("Voltiris to load", sl(h.voltiris_to_load), COLORS.pv), bar("Existing PV to load", sl(h.existing_to_load), COLORS.existing),
     bar("Battery to load", sl(h.battery_to_load), COLORS.bat), bar("Grid to load", sl(h.grid_to_load), COLORS.imp),
-    bar("PV to battery", neg(sl(h.pv_to_battery)), "#9fd3cd"), bar("PV exported", neg(sl(h.pv_exported)), COLORS.exp),
-    { type: "line", label: "Load", data: sl(h.load), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 0, borderWidth: 1.6, stack: "load", order: 1 },
-  ].filter((d) => d.data.some((v) => Math.abs(v || 0) > 1e-9)) },
-    options: { scales: { x: { stacked: true, ticks: dayTicks, grid: { display: false } }, y: { stacked: true, title: { display: true, text: "kW" } } } } });
+    total("Load", sl(h.load), COLORS.load),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
+  const used = sl(h.voltiris_to_load).map((v, i) => v + sl(h.existing_to_load)[i]);
+  chart("eWeekPv", { type: "bar", data: { labels, datasets: [
+    bar("Used directly", used, COLORS.pv), bar("Stored in the battery", sl(h.pv_to_battery), "#9fd3cd"), bar("Exported", sl(h.pv_exported), COLORS.exp),
+    total("PV produced", sl(h.pv), COLORS.load),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
+  const hasBattery = (h.battery_soc || []).some((v) => v > 1e-6) || (h.battery_to_load || []).some((v) => v > 1e-6);
+  $("eWeekBatBox").hidden = !hasBattery;
+  if (hasBattery) chart("eWeekBat", { type: "bar", data: { labels, datasets: [
+    bar("Gives to the load", sl(h.battery_to_load), COLORS.bat), bar("Gives to the grid (exported)", sl(h.battery_to_grid), "#5eead4"),
+    bar("Takes from the PV", neg(sl(h.pv_to_battery)), "#9fd3cd"), bar("Takes from the grid (bought)", neg(sl(h.grid_to_battery)), COLORS.imp),
+    total("Energy held, kWh", sl(h.battery_soc), COLORS.soc, { yAxisID: "y1" }),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, title: { display: true, text: "kW" } },
+    y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: "kWh" } } } } });
 }
 $("eWeek").addEventListener("input", drawElecWeek);
 
@@ -1637,7 +1770,51 @@ function renderStorageStudy() {
     line("Heat released, with storage", d.heat_release, COLORS.heat),
   ] }, options: { scales: { x, y: { beginAtZero: true, title: { display: true, text: "MWh per day" } } } } });
   renderTable("sMonthly", T.monthly, { indexLabel: "Month" });
+  // where the value comes from
+  const parts = Object.entries(T.value_parts || {}).filter(([, v]) => Math.abs(v) >= 0.5);
+  chart("sValue", { type: "bar", data: { labels: parts.map((p) => p[0]).concat("Yearly value"),
+    datasets: [{ data: parts.map((p) => p[1]).concat(s.storage_value_yr),
+      backgroundColor: parts.map((p) => (p[1] >= 0 ? COLORS.heat : COLORS.neg)).concat(COLORS.load) }] },
+    options: { indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: `${c} per year` } } } } });
+  $("sValueTable").innerHTML = `<tr><th>Part</th><th>${c}/yr</th></tr>` +
+    parts.map(([k, v]) => `<tr><td class="text">${esc(k)}</td><td>${fmt(v, 0)}</td></tr>`).join("") +
+    `<tr class="total"><td class="text">Yearly value, before its investment</td><td>${fmt(s.storage_value_yr, 0)}</td></tr>` +
+    `<tr><td class="text">Its investment per year (${fmt(s.storage_investment, 0)} over ${fmt(life)} years)</td><td>${fmt(-s.storage_investment / life, 0)}</td></tr>` +
+    `<tr class="total"><td class="text">Value after its investment</td><td>${fmt(s.storage_value_yr - s.storage_investment / life, 0)}</td></tr>`;
+  // gas per month
+  const M = T.monthly, mc = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]);
+  chart("sGasMonthly", { type: "bar", data: { labels: M.index, datasets: [
+    { type: "bar", label: "Gas without storage, MWh", data: mc("Gas, no storage (MWh)"), backgroundColor: "#cbd5e1", yAxisID: "y", order: 2 },
+    { type: "bar", label: "Gas with storage, MWh", data: mc("Gas, storage (MWh)"), backgroundColor: COLORS.gas, yAxisID: "y", order: 2 },
+    { type: "line", label: `Running cost saved, ${c}`, data: mc("Running cost saved"), borderColor: COLORS.heat, backgroundColor: COLORS.heat, pointRadius: 3, yAxisID: "y1", order: 1 },
+  ] }, options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "MWh of gas" } },
+    y1: { position: "right", grid: { display: false }, title: { display: true, text: c } } } } });
+  drawStorageWeek();
 }
+function drawStorageWeek() {
+  const T = S.results && S.results.storage; if (!T || !T.hourly) return;
+  const h = T.hourly, week = Number($("sWeek").value), from = week * 168, n = Math.min(168, h.heat_demand.length - from);
+  const labels = hourLabels(h.start, from, n), sl = (a) => (a || []).slice(from, from + n);
+  $("sWeekLabel").textContent = `${labels[0].slice(0, 10)} to ${labels[n - 1].slice(0, 10)}`;
+  const bar = (label, data, color) => ({ type: "bar", label, data, backgroundColor: color, stack: "s", order: 2, barPercentage: 1, categoryPercentage: 1 });
+  const total = (label, data, color, extra = {}) => ({ type: "line", label, data, borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 1.8, stack: "line", order: 1, ...extra });
+  const some = (d) => d.data.some((v) => Math.abs(v || 0) > 1e-9);
+  const x = { stacked: true, ticks: dayTicks, grid: { display: false } };
+  const direct = sl(h.heat_demand).map((v, i) => Math.max(v - sl(h.storage_discharge)[i] - sl(h.heat_unmet)[i], 0));
+  chart("sWeekDemand", { type: "bar", data: { labels, datasets: [
+    bar("Boiler, directly", direct, COLORS.heat), bar("From the tank", sl(h.storage_discharge), "#be185d"), bar("Unmet", sl(h.heat_unmet), COLORS.neg),
+    total("Heat demand", sl(h.heat_demand), COLORS.load),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
+  chart("sWeekBoiler", { type: "bar", data: { labels, datasets: [
+    bar("To the greenhouse", direct, COLORS.heat), bar("Into the tank", sl(h.storage_charge), "#fdba74"), bar("Released", sl(h.heat_release), COLORS.grey),
+    total("Boiler output", sl(h.boiler_heat), COLORS.load),
+    total("Boiler output without storage", sl(h.boiler_heat_no_storage), COLORS.load, { borderDash: [5, 4], borderWidth: 1.4 }),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
+  chart("sWeekTank", { type: "line", data: { labels, datasets: [
+    line("Heat in the tank, kWh", sl(h.storage_soc), COLORS.soc, { fill: { target: "origin" }, backgroundColor: "rgba(124,58,237,.12)" }),
+  ] }, options: { scales: { x: { ticks: dayTicks, grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "kWh" } } } } });
+}
+$("sWeek").addEventListener("input", drawStorageWeek);
 
 function renderBoilerStudy() {
   const H = S.results.boiler, s = H.summary, ch = H.choice, c = s.currency, life = ch.life_yr;

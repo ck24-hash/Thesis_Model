@@ -50,8 +50,39 @@ from general.subsidies import block as subsidies
 BLOCKS = {m.ID: m for m in (greenhouse, voltiris, existing_pv, grid, gas_supply, ng_boiler, thermal_storage, battery)}
 GENERAL = {m.ID: m for m in (commercial, subsidies, ems)}
 OWNERS = {key: m.OWNS for key, m in {**BLOCKS, **GENERAL}.items()}   # who owns which parameters, for the overrides
-REQUIRED = ("greenhouse", "grid")
-NEEDS = {"ng_boiler": ["gas_supply"], "thermal_storage": ["ng_boiler"]}   # a block that cannot run without another
+# the links between blocks (common/blocks.json): fixed (always in), needs (all of), needs_one_of, follows
+CATALOGUE = {b["id"]: b for b in json.loads((Path(__file__).resolve().parents[1] / "common" / "blocks.json")
+                                            .read_text(encoding="utf-8"))["blocks"]}
+REQUIRED = tuple(b for b, c in CATALOGUE.items() if c.get("fixed"))
+
+
+def link_problems(blocks) -> list[str]:
+    """What the chosen blocks break of the links between blocks."""
+    chosen, out = set(blocks), []
+    for b in chosen:
+        c = CATALOGUE.get(b, {})
+        lacking = [x for x in c.get("needs", []) if x not in chosen]
+        if lacking:
+            out.append(f"The {b} block needs {', '.join(lacking)} in the system.")
+        if c.get("needs_one_of") and not chosen & set(c["needs_one_of"]):
+            out.append(f"The {b} block needs one of {', '.join(c['needs_one_of'])} in the system.")
+    return out
+
+
+def leave_out(blocks, removed) -> tuple[list[str], list[str]]:
+    """The blocks left when `removed` are taken out, with what can no longer run without them taken out too (a heat
+    storage without a heat source, a gas supply without a block that burns gas). Returns (kept, also taken out)."""
+    kept = [b for b in blocks if b not in set(removed) or CATALOGUE.get(b, {}).get("fixed")]
+    while True:
+        chosen = set(kept)
+        drop = [b for b in kept
+                if any(x not in chosen for x in CATALOGUE.get(b, {}).get("needs", []))
+                or (CATALOGUE.get(b, {}).get("needs_one_of") and not chosen & set(CATALOGUE[b]["needs_one_of"]))
+                or (CATALOGUE.get(b, {}).get("follows") and not chosen & set(CATALOGUE[b]["follows"]))]
+        if not drop:
+            break
+        kept = [b for b in kept if b not in drop]
+    return kept, [b for b in blocks if b not in kept and b not in set(removed)]
 
 
 def business_model_of(case: dict) -> str:
@@ -131,10 +162,9 @@ class System:
         missing = [b for b in REQUIRED if b not in blocks]
         if missing:
             raise ValueError(f"A system needs {', '.join(REQUIRED)}; missing: {', '.join(missing)}.")
-        for block, needed in NEEDS.items():
-            lacking = [x for x in needed if block in blocks and x not in blocks]
-            if lacking:
-                raise ValueError(f"The {block} block needs {', '.join(lacking)} in the system.")
+        problems = link_problems(blocks)
+        if problems:
+            raise ValueError(" ".join(problems))
         self.market, self.dt, self.index = market, dt, index
         self.chosen = [b for b in BLOCKS if b in blocks]
         owned = P.split_overrides(overrides, OWNERS)

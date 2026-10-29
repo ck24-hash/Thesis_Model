@@ -18,6 +18,7 @@ electricity.py the electricity side of every run: supply and demand, self-consum
 joint.py       joint sizing: every sized block's size a variable of one optimisation, for the site's lowest yearly
                cost; then each block left out once for its value in the system
 costs.py       the site's yearly cost: running (grid, gas, levy, O&M, EMS, less revenues) and investments per year
+scenarios.py   scenario B (the case without some blocks, with what depends on them) and its comparison with A
 flows.py       bills, self-consumption and self-sufficiency, monthly table, value split (the reference's flows.py)
 run_case.py    the command line: the sizing of a case (joint, or each block's study), the electricity side and
                the site's yearly cost, written as summary_<tag>.json and results_<tag>.xlsx
@@ -45,7 +46,16 @@ case's `"system": {"sizing": ...}` says how:
   the reference model's results this way.
 
 A block with the objective `custom` keeps its size in both. Then, always: the electricity side (`electricity.py`) and
-the site's yearly cost (`costs.py`), also for a system with nothing to size.
+the site's yearly cost (`costs.py`), also for a system with nothing to size. With `"compare": {"without": [...]}` a
+scenario B, the same case without those blocks, is run the same way and compared with A (`scenarios.py`). The
+formulas of every step are in `OPTIMISATION.md`.
+
+## Links between blocks
+
+`common/blocks.json` says which blocks depend on others, and `setup.py` refuses a system that breaks them:
+`fixed` (greenhouse and grid, always in), `needs` (the gas boiler needs the gas supply), `needs_one_of` (a heat
+storage needs a heat source) and `follows` (the gas supply is in exactly when a block that burns gas is).
+`setup.leave_out()` takes blocks out with what can no longer run without them (scenario B).
 
 Nothing links heat and electricity yet (no heat pump, CHP or electric heater), so today the joint sizing couples the
 boiler and the heat storage, and the battery is sized in the same optimisation without changing them (A16).

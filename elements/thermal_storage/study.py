@@ -28,17 +28,21 @@ def monthly(res: pd.DataFrame, base: pd.DataFrame, s: System) -> pd.DataFrame:
     cost = s.gas.cost_per_kwh
     var_om = s.commercial.boiler_var_om_per_kwh
     rows = []
+    soc = res["storage_soc"]
     for m in range(1, 13):
         r, b = res[res.index.month == m], base[base.index.month == m]
         charged = r["storage_charge"].sum() * dt / 1000
         discharged = r["storage_discharge"].sum() * dt / 1000
+        # heat in the tank at the end of the month before (the year is cyclic) and at the end of this one
+        before = soc[soc.index < r.index[0]].iloc[-1] if m > 1 else soc.iloc[-1]
+        change = (r["storage_soc"].iloc[-1] - before) / 1000
 
         def running(x):
             return (x["gas"] * cost.reindex(x.index) * dt).sum() + (x["boiler_heat"] * var_om * dt).sum()
         rows.append({
             "Heat stored (MWh)": charged,
             "Heat given back (MWh)": discharged,
-            "Losses (MWh)": charged * t.eff_charge - discharged / t.eff_discharge,
+            "Losses (MWh)": charged * t.eff_charge - discharged / t.eff_discharge - change,
             "Highest heat stored (MWh)": r["storage_soc"].max() / 1000,
             "Heat released, no storage (MWh)": b["heat_release"].sum() * dt / 1000,
             "Heat released, storage (MWh)": r["heat_release"].sum() * dt / 1000,
@@ -47,6 +51,35 @@ def monthly(res: pd.DataFrame, base: pd.DataFrame, s: System) -> pd.DataFrame:
             "Running cost saved": running(b) - running(r),
         })
     return pd.DataFrame(rows, index=MONTHS)
+
+
+def value_parts(res: pd.DataFrame, base: pd.DataFrame, s: System, size: float, boiler_kw: float,
+                boiler_kw_without: float, value: float | None = None) -> dict:
+    """Where the storage's yearly value comes from, against the system without it (base): the gas, carbon levy and
+    boiler variable O&M it saves, the smaller boiler's fixed O&M and investment per year (joint sizing only), minus its
+    own fixed O&M. With `value`, what the parts do not explain (the rounding of the joint sizes) is a last part."""
+    dt, c, g = s.dt, s.commercial, s.gas
+
+    def gas(x):
+        return float((x["gas"] * g.price.reindex(x.index) * dt).sum())
+
+    def levy(x):
+        return float((x["gas"] * g.levy_per_kwh * dt).sum())
+
+    def var_om(x):
+        return float((x["boiler_heat"] * c.boiler_var_om_per_kwh * dt).sum())
+    parts = {
+        "Gas bought": gas(base) - gas(res),
+        "Carbon levy": levy(base) - levy(res),
+        "Boiler O&M, variable": var_om(base) - var_om(res),
+        "Boiler O&M, fixed (smaller boiler)": c.boiler_fixed_om(boiler_kw_without) - c.boiler_fixed_om(boiler_kw),
+        "Boiler investment per year (smaller boiler)":
+            (c.boiler_capex(boiler_kw_without) - c.boiler_capex(boiler_kw)) / c.boiler_life_yr,
+        "Heat storage O&M": -c.thermal_storage_fixed_om(size),
+    }
+    if value is not None and abs(value - sum(parts.values())) >= 1:
+        parts["Other (rounding of the joint sizes)"] = value - sum(parts.values())
+    return parts
 
 
 def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None,
@@ -104,7 +137,7 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         "storage_sweep": table.reset_index()[["size", "value", "payback", "lifetime_profit"]].to_dict("records"),
     }
     return {"summary": summary, "sweep": table, "monthly": monthly(res, baseline, s), "dispatch": res,
-            "baseline": baseline,
+            "baseline": baseline, "value_parts": value_parts(res, baseline, s, size, s.boiler_kw, s.boiler_kw),
             "choice": {"objective": cfg["objective"], "custom_kwh": cfg["custom_kwh"], "life_yr": life,
                        "boiler_kw": s.boiler_kw}}
 
@@ -148,5 +181,6 @@ def from_joint(s: System, res: pd.DataFrame, baseline: pd.DataFrame, system_valu
     }
     return {"summary": summary, "sweep": pd.DataFrame([row]).set_index("size"), "monthly": monthly(res, baseline, s),
             "dispatch": res, "baseline": baseline,
+            "value_parts": value_parts(res, baseline, s, size, s.boiler_kw, boiler_kw_without or s.boiler_kw, value),
             "choice": {"objective": "joint", "custom_kwh": None, "life_yr": life, "boiler_kw": s.boiler_kw,
                        "boiler_kw_without": boiler_kw_without, "system_value": system_value}}

@@ -1,5 +1,5 @@
 {
-  "_about": "Every technology of the thesis (thesis.md section 3). status: 'model' = runs today (elements/<id>); 'planned' = not built. carriers: the flows the block takes (in) or gives (out).",
+  "_about": "Every technology of the thesis (thesis.md section 3). status: 'model' = runs today (elements/<id>); 'planned' = not built. carriers: the flows the block takes (in) or gives (out). The links between blocks, used by the interface and checked by system/setup.py: fixed = always in the system; needs = every block listed must be in the system too; needs_one_of = at least one of them (the heat sources of a heat storage); follows = in the system exactly when one of these is (the gas supply follows the blocks that burn gas).",
   "blocks": [
     {
       "id": "greenhouse",
@@ -12,7 +12,8 @@
         "co2"
       ],
       "out": [],
-      "role": "the site's demand: electricity, heat, CO2"
+      "role": "the site's demand: electricity, heat, CO2",
+      "fixed": true
     },
     {
       "id": "voltiris",
@@ -47,7 +48,8 @@
       "out": [
         "electricity"
       ],
-      "role": "import and export, tariffs and capacity charges"
+      "role": "import and export, tariffs and capacity charges",
+      "fixed": true
     },
     {
       "id": "battery",
@@ -71,7 +73,11 @@
       "out": [
         "gas"
       ],
-      "role": "natural gas bought from the network: the fuel of the boiler and the CHP"
+      "role": "natural gas bought from the network: the fuel of the boiler and the CHP",
+      "follows": [
+        "ng_boiler",
+        "chp"
+      ]
     },
     {
       "id": "ng_boiler",
@@ -85,7 +91,10 @@
         "co2"
       ],
       "role": "gas heat and flue gas CO2; backup in S1",
-      "status_note": "elements/ng_boiler: size sweep and lifetime cost"
+      "status_note": "elements/ng_boiler: size sweep and lifetime cost",
+      "needs": [
+        "gas_supply"
+      ]
     },
     {
       "id": "chp",
@@ -99,7 +108,10 @@
         "heat",
         "co2"
       ],
-      "role": "electricity, heat and flue gas CO2"
+      "role": "electricity, heat and flue gas CO2",
+      "needs": [
+        "gas_supply"
+      ]
     },
     {
       "id": "heat_pump",
@@ -124,7 +136,15 @@
       "out": [
         "heat"
       ],
-      "role": "shifts heat in time, discharges to the greenhouse only"
+      "role": "shifts heat in time, discharges to the greenhouse only",
+      "needs_one_of": [
+        "ng_boiler",
+        "chp",
+        "heat_pump",
+        "aux_heater",
+        "sofc"
+      ],
+      "needs_one_of_label": "a heat source"
     },
     {
       "id": "data_center",

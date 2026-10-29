@@ -67,6 +67,15 @@
       </div>
     </div>
   </div>
+  <div class="card" id="compareCard" hidden>
+    <h2>Compare with a scenario B <span class="info" tabindex="0" data-tip="Scenario B is this system without some of its blocks: it can only leave blocks out, not add any. A block that cannot run without one left out goes too (a heat storage without a heat source, the gas supply without the boiler). B is sized and run like A, then the two are compared on the site's yearly cost and key figures. The run takes about twice as long.">i</span></h2>
+    <label class="check"><input type="checkbox" id="cmpOn"> Run a scenario B too: this system without some blocks</label>
+    <div id="cmpBox" hidden>
+      <p class="hint">Tick the blocks scenario B leaves out.</p>
+      <div class="chips" id="cmpBlocks"></div>
+      <div class="callout" id="cmpInfo"></div>
+    </div>
+  </div>
   <div class="nav-buttons" data-nav></div>
 </section>
 
@@ -417,6 +426,7 @@
   </div>
   <div class="tabs res-tabs" id="resTabs" hidden>
     <button data-rtab="system" class="active">System</button>
+    <button data-rtab="compare" class="ct">Comparison</button>
     <button data-rtab="electricity">Electricity</button>
     <button data-rtab="overview" class="bt">Battery</button>
     <button data-rtab="sizes" class="bt">Battery sizes</button>
@@ -444,13 +454,27 @@
       <p class="hint">Running: what it costs to run the site in a year. Investment per year: each investment divided by its life (no discounting), the rule of the studies' lifetime profit and lifetime cost. Existing PV is sunk. Unmet heat or CO2 is counted below, not priced.</p>
     </div>
   </div>
+  <div class="rtab" data-rtab="compare" id="res-compare" hidden>
+    <div class="tiles big" id="cTiles"></div>
+    <div class="callout" id="cWhy"></div>
+    <div class="card">
+      <h2>Yearly cost of the site, A and B <span class="muted" id="cCur"></span></h2>
+      <div class="chart tall"><canvas id="cChart"></canvas></div>
+      <div class="table-wrap"><table class="grid" id="cTable"></table></div>
+    </div>
+    <div class="card">
+      <h2>Sizes and key figures</h2>
+      <div class="table-wrap"><table class="grid" id="cFigures"></table></div>
+      <p class="hint">The other tabs show scenario A. B's results are in the results workbook (sheet "B site yearly cost").</p>
+    </div>
+  </div>
   <div class="rtab" data-rtab="electricity" id="res-electricity" hidden>
     <div class="row center" id="eCaseRow" hidden><div class="seg" id="eCaseSeg"></div></div>
     <div class="tiles big" id="eTiles"></div>
     <div class="card">
       <h2>Supply and demand, month by month</h2>
       <div class="chart"><canvas id="eMonthly"></canvas></div>
-      <p class="hint">Above zero, what covers the load: the PV used directly (Voltiris, existing PV), the battery, the grid. Below zero, the PV not used on site: stored in the battery or exported. The line is the load.</p>
+      <p class="hint">What covers the load each month: the PV used directly (Voltiris, existing PV), the battery, the grid. The bars add up to the load (the line). Where the PV goes is in the self-consumption chart below.</p>
     </div>
     <div class="card">
       <h2>One week, hourly</h2>
@@ -458,7 +482,15 @@
         <label class="field grow">Week <input type="range" id="eWeek" min="0" max="51" value="25"></label>
         <span id="eWeekLabel" class="muted"></span>
       </div>
+      <h3>How the load is covered</h3>
       <div class="chart"><canvas id="eWeekChart"></canvas></div>
+      <h3>Where the PV goes</h3>
+      <div class="chart short"><canvas id="eWeekPv"></canvas></div>
+      <div id="eWeekBatBox">
+        <h3>The battery</h3>
+        <div class="chart short"><canvas id="eWeekBat"></canvas></div>
+      </div>
+      <p class="hint">Each chart adds up: the load = PV used directly + battery + grid; the PV = used directly + stored in the battery + exported. Battery: above zero it gives power (to the load, or exported), below zero it takes power (from the PV surplus, or bought from the grid); the line is the energy it holds.</p>
     </div>
     <div class="card">
       <h2>Self-consumption of the PV</h2>
@@ -556,6 +588,18 @@
     <div class="tiles big" id="sTiles"></div>
     <div class="callout" id="sWhy"></div>
     <div class="card">
+      <h2>Where the yearly value comes from <span class="muted">against the system without storage</span></h2>
+      <div class="two">
+        <div class="chart"><canvas id="sValue"></canvas></div>
+        <div class="table-wrap"><table class="grid" id="sValueTable"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Gas per month, without and with the storage</h2>
+      <div class="chart"><canvas id="sGasMonthly"></canvas></div>
+      <p class="hint">The line is the running cost the storage saves each month (gas, carbon levy, boiler variable O&amp;M).</p>
+    </div>
+    <div class="card">
       <h2>Yearly value and payback of each size</h2>
       <div class="chart"><canvas id="sSweep"></canvas></div>
       <div class="table-wrap"><table class="grid" id="sSweepTable"></table></div>
@@ -565,6 +609,20 @@
       <div class="chart"><canvas id="sYear"></canvas></div>
       <div class="chart short"><canvas id="sRelease"></canvas></div>
       <p class="hint">Stored above zero, given back below. The line is the day's highest heat in the tank. Heat released: what the boiler gives beyond the demand and the tank, with and without storage.</p>
+    </div>
+    <div class="card">
+      <h2>One week, hourly</h2>
+      <div class="row slim">
+        <label class="field grow">Week <input type="range" id="sWeek" min="0" max="51" value="25"></label>
+        <span id="sWeekLabel" class="muted"></span>
+      </div>
+      <h3>How the heat demand is covered</h3>
+      <div class="chart"><canvas id="sWeekDemand"></canvas></div>
+      <h3>What the boiler gives</h3>
+      <div class="chart short"><canvas id="sWeekBoiler"></canvas></div>
+      <h3>Heat in the tank</h3>
+      <div class="chart short"><canvas id="sWeekTank"></canvas></div>
+      <p class="hint">The heat demand is covered by the boiler directly and by the tank. The boiler's heat goes to the greenhouse, into the tank, or is released (when it runs for CO2). The dashed line is what the boiler gives without the storage: the gap is the heat the tank shifts in time.</p>
     </div>
     <div class="card">
       <h2>Month by month</h2>

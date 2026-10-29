@@ -73,6 +73,8 @@ case file, or turn the switch off in the interface's battery card.
 ## Documentation
 
 - `thesis.md`: the thesis scope, scenarios, blocks, assumptions register.
+- `OPTIMISATION.md`: how the model optimises: the yearly dispatch, each block's sizing study, the joint sizing, the
+  site's yearly cost and the comparison of two scenarios, with the formulas and the reasoning.
 - `PLAN.md`: how the blocks are built and connected, and in which order.
 - `elements/README.md` and each block's README: what a block is, its equations and parameters.
 - `system/README.md`: the engine, the case format, the check against the reference.

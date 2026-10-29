@@ -16,7 +16,7 @@ from elements.grid import block as grid
 from elements.ng_boiler import sizing as boiler_sizing
 from elements.thermal_storage import sizing as storage_sizing
 from general.commercial import block as commercial
-from interface.adapters.battery_view import (battery_page, boiler_page, electricity_page, first_stage,
+from interface.adapters.battery_view import (battery_page, boiler_page, compare_page, electricity_page, first_stage,
                                              results_for_page, storage_page, system_page)
 from interface.tables import clean, read_table
 from system import dispatch, joint, setup
@@ -34,7 +34,7 @@ STAGES = [("Reading", 1), ("=== JOINT SIZING ===", 2), ("EACH BLOCK LEFT OUT", 3
           ("Boiler chosen", 5), ("HEAT STORAGE SIZING SWEEP", 6), ("HEAT STORAGE IN THE SYSTEM", 6),
           ("Heat storage chosen", 7), ("Auto DUP", 8), ("Regime ", 8), ("Solving the year without battery", 9),
           ("BATTERY SIZING SWEEP", 10), ("Chosen:", 11), ("=== ELECTRICITY", 12), ("=== SITE YEARLY COST", 13),
-          ("Writing", 14)]
+          ("=== SCENARIO B", 14), ("=== COMPARISON", 15), ("Writing", 16)]
 STAGE_LABELS = [   # stage, label, counts the sizes solved, the block it belongs to ("joint": the joint sizing)
     (1, "Read the inputs", False, None),
     (2, "Joint sizing: every sized block optimised together", False, "joint"),
@@ -48,7 +48,9 @@ STAGE_LABELS = [   # stage, label, counts the sizes solved, the block it belongs
     (11, "Battery: the chosen size's bill, value and payback", False, "battery"),
     (12, "Electricity: supply, self-consumption and the grid bill", False, None),
     (13, "The site's yearly cost", False, None),
-    (14, "Write summary_<tag>.json and results_<tag>.xlsx", False, None),
+    (14, "Scenario B: the same run without the blocks it leaves out", False, "compare"),
+    (15, "Comparison of scenarios A and B", False, "compare"),
+    (16, "Write summary_<tag>.json and results_<tag>.xlsx", False, None),
 ]
 
 
@@ -182,7 +184,7 @@ def preview(case: dict) -> dict:
             "capex_per_kw": c.capex["boiler_per_kw_th"], "life_yr": c.boiler_life_yr}
     plan = joint.plan_of(s, case["blocks"])
     mode = (case.get("system") or {}).get("sizing") or "joint"
-    out["sizing"] = {"mode": "joint" if mode == "joint" and len(plan) >= 2 else "sequential", "asked": mode,
+    out["joint_sizing"] = {"mode": "joint" if mode == "joint" and len(plan) >= 2 else "sequential", "asked": mode,
                      "plan": plan, "battery_max_kwh": joint.battery_limit(s, case["blocks"]) if s.battery else None}
     if s.storage is not None:
         scfg = {**storage_sizing.DEFAULTS, **((case["blocks"].get("thermal_storage") or {}).get("sizing") or {})}
@@ -223,5 +225,6 @@ def run(case_path: Path, out_dir: Path, tag: str, log) -> tuple[dict, dict]:
     storage = storage_page(out["thermal_storage"], s.dt) if out["thermal_storage"] is not None else None
     page = results_for_page(ID, battery=battery, boiler=boiler, storage=storage,
                             electricity=electricity_page(out["electricity"]), summary=summary_of(out),
-                            system=system_page(out["mode"], out["costs"], out["joint"]))
+                            system=system_page(out["mode"], out["costs"], out["joint"]),
+                            compare=compare_page(out["compare"]) if out.get("compare") else None)
     return page, {"summary": str(summary_path), "results": str(workbook_path)}

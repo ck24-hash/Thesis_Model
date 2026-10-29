@@ -14,7 +14,8 @@ The sized blocks (gas boiler, heat storage, battery) are sized in one of two way
 
 Then, always: the electricity side (system/electricity.py: supply and demand, self-consumption, the grid bill, without
 battery and with the chosen battery) and the site's yearly cost (system/costs.py). A system without a block to size
-runs these two only. The results go next to the case file (or to "output_dir"): summary_<tag>.json and
+runs these two only. With "compare": {"without": [...]}, a scenario B (the same case without those blocks) is run
+the same way and compared with A (system/scenarios.py). The results go next to the case file (or to "output_dir"): summary_<tag>.json and
 results_<tag>.xlsx. For a battery-only case the battery study's sheets are the same as
 elements/battery_reference/run_case.py writes.
 """
@@ -34,7 +35,7 @@ import pandas as pd  # noqa: E402
 from elements.battery import study as battery_study  # noqa: E402
 from elements.ng_boiler import study as boiler_study  # noqa: E402
 from elements.thermal_storage import study as storage_study  # noqa: E402
-from system import costs, electricity, joint, setup  # noqa: E402
+from system import costs, electricity, joint, scenarios, setup  # noqa: E402
 
 SIZING_MODES = ("joint", "sequential")
 
@@ -48,8 +49,25 @@ def sizing_mode(case: dict) -> str:
 
 def run(case: dict, case_dir: Path, tag: str, log=print, sizing: str | None = None) -> tuple[dict, setup.System]:
     """The studies of a case (either format): {"mode", "joint", "boiler", "thermal_storage", "battery": each one's
-    results or None, "electricity", "costs"}, and the system they ran. sizing: the case's sizing mode unless given."""
+    results or None, "electricity", "costs", "compare": scenario B and the comparison, or None}, and the system they
+    ran (A's). sizing: the case's sizing mode unless given."""
     case = setup.as_system_case(case)
+    out, s = run_one(case, case_dir, tag, log, sizing)
+    without = [b for b in ((case.get("compare") or {}).get("without") or []) if b in case["blocks"]]
+    out["compare"] = None
+    if without:
+        b_case, also = scenarios.case_b(case, without)
+        log(f"\n=== SCENARIO B: without {', '.join(without + also)} ===")
+        out_b, _ = run_one(b_case, case_dir, tag, log, sizing)
+        log("\n=== COMPARISON ===")
+        out["compare"] = {**scenarios.comparison(out, out_b, without, also), "b": out_b}
+        c = out["compare"]
+        log(f"  Yearly cost of the site: A {c['total_a']:,.0f}, B {c['total_b']:,.0f}, B - A {c['difference']:,.0f}")
+    return out, s
+
+
+def run_one(case: dict, case_dir: Path, tag: str, log=print, sizing: str | None = None) -> tuple[dict, setup.System]:
+    """One scenario: the sizing, the electricity side and the site's yearly cost."""
     s = setup.build(case, case_dir)
     blocks = case["blocks"]
     regime = (blocks.get("grid") or {}).get("regime") or {}
@@ -133,6 +151,12 @@ def summary_of(out: dict) -> dict:
                            **{f"size_{k}": v for k, v in c["sizes"].items()}}
         if out.get("joint") is not None:
             summary["site"].update({f"value_in_system_{k}": v for k, v in out["joint"]["value"].items()})
+    if out.get("compare") is not None:
+        c = out["compare"]
+        summary["comparison"] = {"scenario_b_without": ", ".join(c["without"] + c["also"]),
+                                 "site_yearly_cost_a": c["total_a"], "site_yearly_cost_b": c["total_b"],
+                                 "difference_b_minus_a": c["difference"], "extra_investment_a": c["extra_investment"],
+                                 "running_saving_a": c["running_saving"], "payback_extra_investment_yr": c["payback_yr"]}
     return summary
 
 
@@ -152,6 +176,11 @@ def write_results(out: dict, out_dir: Path, tag: str) -> None:
             b["dispatch"].to_excel(xl, sheet_name="Dispatch")
         if out.get("costs") is not None:
             costs.table(out["costs"]).to_excel(xl, sheet_name="Site yearly cost", index=False)
+        cmp = out.get("compare")
+        if cmp is not None:
+            cmp["costs"].to_excel(xl, sheet_name="Comparison, yearly cost", index=False)
+            cmp["figures"].to_excel(xl, sheet_name="Comparison, figures", index=False)
+            costs.table(cmp["b"]["costs"]).to_excel(xl, sheet_name="B site yearly cost", index=False)
         j = out.get("joint")
         if j is not None:
             rows = [{"Block": joint.NAMES[b], "Size": size, "Unit": joint.UNITS[b], "Sized": "fixed" if j["plan"][b] is not None

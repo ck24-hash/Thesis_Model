@@ -240,6 +240,8 @@ def test_electricity_split_adds_up():
     pv = sp["voltiris_to_load"] + sp["existing_to_load"] + sp["pv_to_battery"] + sp["pv_exported"]
     assert (pv - res["pv"]).abs().max() < 1e-6
     assert (sp["voltiris"] + sp["existing"] - res["pv"]).abs().max() < 1e-9
+    grid_net = sp["grid_to_load"] + sp["grid_to_battery"] - sp["pv_exported"] - sp["battery_to_grid"]
+    assert (grid_net - (res["grid_import"] - res["grid_export"])).abs().max() < 1e-6
     assert abs(k["saving_vs_no_pv"] - (k["bill_no_pv"] - k["bill"])) < 1e-6
     assert abs(c["bills"].loc["Total", "test"] - k["bill"]) < 1e-6
 
@@ -278,3 +280,31 @@ def test_plain_run():
     c, k = out["costs"], out["electricity"]["cases"]["no_battery"]["kpi"]
     assert abs(c["running"]["Grid: energy and network"] - k["import_cost"]) < 1e-6
     assert "Voltiris modules" in c["investment"] and c["total"] > 0
+
+
+# -- links between blocks and scenario B --------------------------------------------------------------------------------
+def test_block_links():
+    """A heat storage needs a heat source; leaving the boiler out takes the heat storage and the gas supply with it;
+    greenhouse and grid always stay."""
+    assert setup.link_problems(["greenhouse", "grid", "thermal_storage"])
+    assert not setup.link_problems(["greenhouse", "grid", "gas_supply", "ng_boiler", "thermal_storage"])
+    blocks = ["greenhouse", "voltiris", "grid", "gas_supply", "ng_boiler", "thermal_storage", "battery"]
+    assert setup.leave_out(blocks, ["ng_boiler"]) == (["greenhouse", "voltiris", "grid", "battery"],
+                                                     ["gas_supply", "thermal_storage"])
+    assert setup.leave_out(blocks, ["grid", "battery"])[0] == ["greenhouse", "voltiris", "grid", "gas_supply",
+                                                               "ng_boiler", "thermal_storage"]
+
+
+def test_scenario_b():
+    """Scenario B without the battery: its yearly cost minus A's is the battery's value after its investment per
+    year, and A's extra investment over its running saving is the battery study's payback."""
+    from system import run_case
+    case = json.loads((BLOCK_EXAMPLES / "case_blocks_CH.json").read_text())
+    case["blocks"]["battery"] = {"sizing": {"sweep_kwh": [100], "cap_at_subsidy_size": False}}
+    case["compare"] = {"without": ["battery"]}
+    out, s = run_case.run(case, BLOCK_EXAMPLES, "t", log=lambda *a, **k: None)
+    c, sm = out["compare"], out["battery"]["summary"]
+    assert c["without"] == ["battery"] and c["also"] == [] and out["compare"]["b"]["battery"] is None
+    yearly_investment = sm["battery_investment"] / s.commercial.battery_life_yr
+    assert abs(c["difference"] - (sm["battery_value_yr"] - yearly_investment)) < 1e-6
+    assert abs(c["payback_yr"] - sm["battery_payback_yr"]) < 1e-9

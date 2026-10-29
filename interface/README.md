@@ -13,7 +13,10 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
 1. **System**: a drawing of the greenhouse with every block around it; click a block to add or remove it (flows light
    up by carrier; dashed = not built yet). Or load a case file or a scenario preset (`common/scenarios.json`, the
    thesis matrix), and set the data year. With two sized blocks or more, choose how they are sized: together
-   (default) or one at a time. The blocks chosen pick the model that runs them (the run type); when two
+   (default) or one at a time. The links between blocks apply when you click: greenhouse and grid always stay, the
+   gas supply comes and goes with the gas boiler, a heat storage brings the gas boiler if there is no heat source, and
+   taking the boiler out takes the heat storage with it. A scenario B (this system without some blocks) can be run
+   too, for the Comparison tab. The blocks chosen pick the model that runs them (the run type); when two
    fit, choose one. A system no model can run yet is shown with the reason, and cannot be run.
    - **One page per chosen block**, under System, with its technical side only:
      - Greenhouse demand, Voltiris, Existing PV, Grid: the block's own input file (pick, upload or type a path; its time
@@ -30,7 +33,8 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
    they apply, and a field about one block only when the system has it.
 4. **Run**: the setup check (nothing is solved), the run with its progress and log, other overrides (JSON), the case
    file, every parameter used. It writes `case_<tag>.json` (system format) to the output folder and runs it.
-5. **Results**, in tabs: System, always (the site's yearly cost, running and investments per year, the sizes and,
+5. **Results**, in tabs: Comparison, with a scenario B (A and B line by line, the payback of A's extra investment);
+   System, always (the site's yearly cost, running and investments per year, the sizes and,
    with the joint sizing, each block's value in the system); Electricity, always (supply and demand per month and for one week, self-consumption and
    self-sufficiency, money to and from the grid with the bill without PV, month by month; without and with the
    battery when there is one); for the battery Battery (key numbers, why this size, where the value comes from),
@@ -38,7 +42,7 @@ window open while you use it; Ctrl+C stops it. It needs the models' Python packa
    numbers, why this size, each size tested, per day, month by month); Files. A tab shows only when the run has that
    study. After a refresh the last run's results come back.
 
-The menu button (top left) hides or shows the menu. Parameter fields show their default and a reset button when
+The menu button (top left) hides or shows the menu; the arrow next to System and General folds their items. Parameter fields show their default and a reset button when
 changed; an i next to a field explains it.
 
 The address keeps the page (`#voltiris`, `#run`), so a refresh opens the same page.

@@ -45,3 +45,4 @@ Rules:
   carbon levy's values).
 - The heat side (buses `heat`, `co2`, `gas`) is added only when the system has a heat block, so a system without one
   gives the same LP as the reference.
+- Which block needs which is in `common/blocks.json` (`fixed`, `needs`, `needs_one_of`, `follows`; `system/README.md`).

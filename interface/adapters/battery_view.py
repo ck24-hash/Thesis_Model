@@ -91,7 +91,8 @@ def electricity_page(e: dict) -> dict:
     out = {}
     for key, c in e["cases"].items():
         hourly = c["split"][["load", "voltiris_to_load", "existing_to_load", "battery_to_load", "grid_to_load",
-                             "pv_to_battery", "pv_exported"]].resample("h").mean()
+                             "pv_to_battery", "pv_exported", "battery_to_grid", "grid_to_battery", "pv",
+                             "battery_soc"]].resample("h").mean()
         out[key] = {"kpi": c["kpi"], "bills": c["bills"], "monthly": c["monthly"],
                     "hourly": {"start": hourly.index[0].isoformat(), **{k: rounded(hourly[k], 2) for k in hourly}}}
     return {"cases": out}
@@ -103,12 +104,17 @@ def storage_page(out: dict, dt: float) -> dict:
     daily = (d[["storage_charge", "storage_discharge", "heat_release"]] * dt / 1000).resample("D").sum()
     daily["heat_release_no_storage"] = (b["heat_release"] * dt / 1000).resample("D").sum()
     daily["soc_max"] = d["storage_soc"].resample("D").max() / 1000
+    hourly = d[["heat_demand", "boiler_heat", "storage_charge", "storage_discharge", "heat_release", "heat_unmet",
+                "storage_soc", "gas"]].resample("h").mean()
+    hourly["boiler_heat_no_storage"] = b["boiler_heat"].resample("h").mean()
     return {
         "choice": out["choice"],
         "summary": out["summary"],
         "sweep": out["sweep"].reset_index(),
         "monthly": out["monthly"],
+        "value_parts": out.get("value_parts", {}),
         "daily": {"start": daily.index[0].isoformat(), **{c: rounded(daily[c], 3) for c in daily.columns}},
+        "hourly": {"start": hourly.index[0].isoformat(), **{c: rounded(hourly[c], 2) for c in hourly.columns}},
     }
 
 
@@ -122,9 +128,17 @@ def system_page(mode: str, cost: dict, j: dict | None = None) -> dict:
     return page
 
 
+def compare_page(c: dict) -> dict:
+    """Scenario A against scenario B: the yearly cost line by line, the sizes and key figures, and B's own yearly
+    cost."""
+    keys = ("without", "also", "names", "costs", "figures", "total_a", "total_b", "difference", "invested_a",
+            "invested_b", "extra_investment", "running_saving", "payback_yr")
+    return {**{k: c[k] for k in keys}, "b_mode": c["b"]["mode"], "b_costs": c["b"]["costs"]}
+
+
 def results_for_page(run_type: str, battery: dict | None = None, boiler: dict | None = None,
                      summary: dict | None = None, electricity: dict | None = None,
-                     storage: dict | None = None, system: dict | None = None) -> dict:
+                     storage: dict | None = None, system: dict | None = None, compare: dict | None = None) -> dict:
     """Every study's results, and every summary value in one flat list (for the Files tab)."""
     flat = {}
     for key, value in (summary or {}).items():
@@ -132,5 +146,6 @@ def results_for_page(run_type: str, battery: dict | None = None, boiler: dict | 
             flat.update({k: v for k, v in value.items() if not isinstance(v, (list, dict))})
         elif not isinstance(value, list):
             flat[key] = value
-    return clean({"run_type": run_type, "view": "system", "system": system, "electricity": electricity,
-                  "battery": battery, "boiler": boiler, "storage": storage, "summary": flat})
+    return clean({"run_type": run_type, "view": "system", "system": system, "compare": compare,
+                  "electricity": electricity, "battery": battery, "boiler": boiler, "storage": storage,
+                  "summary": flat})
