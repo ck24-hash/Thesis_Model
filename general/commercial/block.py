@@ -1,7 +1,7 @@
 """Commercial: what the system's parts cost and earn, apart from the grid tariff (elements/grid), the gas price
 (elements/gas_supply) and the subsidies (general/subsidies): the Voltiris business model (direct sales or EaaS,
 business_model.py), the investment prices (PV per Wp, battery price tiers, battery replacements, gas boiler per kW and
-its O&M, heat storage per kWh and its O&M), the lifetimes, and the revenue rate of the battery's ancillary reserve. From elements/battery_reference: blocks/capex.py, blocks/business_model.py and the money parts of
+its O&M, heat storage per kWh and its O&M, heat pump per kW and its O&M), the lifetimes, and the revenue rate of the battery's ancillary reserve. From elements/battery_reference: blocks/capex.py, blocks/business_model.py and the money parts of
 engine/setup.py."""
 from __future__ import annotations
 
@@ -86,6 +86,18 @@ class Commercial:
     def thermal_storage_fixed_om(self, size_kwh: float) -> float:
         """Yearly fixed operation and maintenance."""
         return size_kwh * self.capex["thermal_storage_fixed_om_per_kwh_year"]
+
+    # -- heat pump ----------------------------------------------------------------------------------------------------
+    @property
+    def heat_pump_life_yr(self) -> float:
+        return self.params["finance"]["heat_pump_life_yr"]
+
+    def heat_pump_capex(self, size_kw_th: float) -> float:
+        return size_kw_th * self.capex["heat_pump_per_kw_th"]
+
+    def heat_pump_fixed_om(self, size_kw_th: float) -> float:
+        """Yearly fixed operation and maintenance."""
+        return size_kw_th * self.capex["heat_pump_fixed_om_per_kw_year"]
 
     def battery_replacement_cost(self, size_kwh: float, horizon_yr: float) -> float:
         """All replacements within the horizon (the PV life), each at battery_replacement_frac of the gross price,

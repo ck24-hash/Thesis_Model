@@ -1,0 +1,9 @@
+{
+  "_about": "Liquid CO2 bought and delivered to the greenhouse. The price comes from the block's input file (EUR per kg), or from price_per_kg when the block has no file. TO CHECK: the values are placeholders.",
+  "price_per_kg": null,
+  "price_note": "fixed CO2 price per kg (market currency), used only when the block has no input file",
+  "fixed_cost_per_year": 0,
+  "fixed_cost_note": "yearly fixed cost of the supply (tank and evaporator rental, contract), market currency. TO CHECK: placeholder 0",
+  "max_kg_h": null,
+  "max_kg_h_note": "the most CO2 the supply can deliver per hour (evaporator); none = as much as the greenhouse needs. TO CHECK"
+}

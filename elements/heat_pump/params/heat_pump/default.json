@@ -1,0 +1,13 @@
+{
+  "_about": "Heat pump: electricity in, heat out, sized in kW of heat. Without a data center its heat source is the outside air (air-source, scenario S2). TO CHECK: the COP values are placeholders until sourced values are given.",
+  "supply_temp_c": 60,
+  "supply_temp_note": "temperature of the heat given to the greenhouse, °C (assumption of the thesis: 60 °C heating water)",
+  "cop": {
+    "mode": "dynamic",
+    "mode_note": "constant: cop.nominal all year; dynamic: from the outside temperature of the block's input file, COP_t = nominal x (supply_temp_c - ref_outside_temp_c) / (supply_temp_c - outside temperature_t)",
+    "nominal": 3.0,
+    "nominal_note": "COP (kWh of heat per kWh of electricity) at the reference outside temperature and the supply temperature. TO CHECK: placeholder",
+    "ref_outside_temp_c": 7,
+    "ref_outside_temp_note": "outside temperature at which the COP is cop.nominal, °C. TO CHECK: placeholder"
+  }
+}

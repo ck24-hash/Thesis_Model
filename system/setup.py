@@ -36,9 +36,11 @@ from common import parameters as P
 from common import timeseries
 from elements.battery import block as battery
 from elements.existing_pv import block as existing_pv
+from elements.external_co2 import block as external_co2
 from elements.gas_supply import block as gas_supply
 from elements.greenhouse import block as greenhouse
 from elements.grid import block as grid
+from elements.heat_pump import block as heat_pump
 from elements.ng_boiler import block as ng_boiler
 from elements.thermal_storage import block as thermal_storage
 from elements.voltiris import block as voltiris
@@ -47,13 +49,21 @@ from general.ems import block as ems
 from general.subsidies import block as subsidies
 
 # the blocks that can be built; greenhouse first: its load file sets the run's time stamps
-BLOCKS = {m.ID: m for m in (greenhouse, voltiris, existing_pv, grid, gas_supply, ng_boiler, thermal_storage, battery)}
+BLOCKS = {m.ID: m for m in (greenhouse, voltiris, existing_pv, grid, gas_supply, ng_boiler, heat_pump,
+                              thermal_storage, external_co2, battery)}
 GENERAL = {m.ID: m for m in (commercial, subsidies, ems)}
 OWNERS = {key: m.OWNS for key, m in {**BLOCKS, **GENERAL}.items()}   # who owns which parameters, for the overrides
 # the links between blocks (common/blocks.json): fixed (always in), needs (all of), needs_one_of, follows
 CATALOGUE = {b["id"]: b for b in json.loads((Path(__file__).resolve().parents[1] / "common" / "blocks.json")
                                             .read_text(encoding="utf-8"))["blocks"]}
 REQUIRED = tuple(b for b, c in CATALOGUE.items() if c.get("fixed"))
+
+
+def sources(blocks, carrier: str) -> list[str]:
+    """The chosen blocks that make a carrier (it is one of what they give, not of what they take): the heat sources
+    (not a heat storage), the CO2 sources."""
+    return [b for b in blocks if carrier in CATALOGUE.get(b, {}).get("out", [])
+            and carrier not in CATALOGUE.get(b, {}).get("in", [])]
 
 
 def link_problems(blocks) -> list[str]:
@@ -174,17 +184,21 @@ class System:
         self.currency = grid_params["tariff"]["currency"]
         # the physical blocks
         gh = blocks["greenhouse"] or {}
-        self.heat_blocks = [b for b in ("ng_boiler",) if b in blocks]   # the blocks that supply heat and CO2
-        if self.heat_blocks:
-            lacking = [c for c in ("heat_kw", "co2_kg_h") if c not in inputs]
-            if lacking:
-                names = {c["role"]: c["column"] for c in greenhouse.COLUMNS}
-                raise KeyError(f"The greenhouse file needs the columns {', '.join(names[c] for c in lacking)} "
-                               f"when the system has a heat block ({', '.join(self.heat_blocks)}).")
+        # the heat and CO2 demand are read when a block supplies them (built heat and CO2 sources)
+        self.heat_blocks = [b for b in sources(blocks, "heat") if b in BLOCKS]
+        self.co2_blocks = [b for b in sources(blocks, "co2") if b in BLOCKS]
+        needed = (["heat_kw"] if self.heat_blocks else []) + (["co2_kg_h"] if self.co2_blocks else [])
+        lacking = [c for c in needed if c not in inputs]
+        if lacking:
+            names = {c["role"]: c["column"] for c in greenhouse.COLUMNS}
+            raise KeyError(f"The greenhouse file needs the columns {', '.join(names[c] for c in lacking)} when the "
+                           f"system has {', '.join(self.heat_blocks + self.co2_blocks)}.")
+        # with bought CO2 the CO2 demand can always be met, so it must be
+        co2_mode = "required" if "external_co2" in blocks else gh.get("co2_mode", "required")
         self.greenhouse = greenhouse.Greenhouse(
             greenhouse.load_params(market, self.currency, owned["greenhouse"], fx), inputs["load_kw"], dt,
-            inputs.get("heat_kw") if self.heat_blocks else None, inputs.get("co2_kg_h") if self.heat_blocks else None,
-            gh.get("co2_mode", "required"))
+            inputs.get("heat_kw") if self.heat_blocks else None, inputs.get("co2_kg_h") if self.co2_blocks else None,
+            co2_mode)
         v = blocks.get("voltiris")
         self.voltiris = None if v is None else voltiris.Voltiris(
             voltiris.load_params(market, self.currency, owned["voltiris"], fx), inputs["pv_w_per_module"],
@@ -199,10 +213,18 @@ class System:
         self.boiler = (ng_boiler.Boiler(ng_boiler.load_params(market, self.currency, owned["ng_boiler"], fx))
                        if "ng_boiler" in blocks else None)
         self.boiler_kw = None   # the boiler's size: set by its study, then fixed for the other studies
+        self.heat_pump = (heat_pump.HeatPump(heat_pump.load_params(market, self.currency, owned["heat_pump"], fx),
+                                             index, inputs.get("hp_outside_temp_c"))
+                          if "heat_pump" in blocks else None)
+        self.heat_pump_kw = None   # the heat pump's size: set by the joint sizing (or fixed in the case)
         self.storage = (thermal_storage.ThermalStorage(
             thermal_storage.load_params(market, self.currency, owned["thermal_storage"], fx), index,
             inputs.get("outside_temp_c")) if "thermal_storage" in blocks else None)
         self.storage_kwh = None   # the heat storage's size: set by its study (none before it: no storage)
+        self.external_co2 = (external_co2.ExternalCO2(
+            external_co2.load_params(market, self.currency, owned["external_co2"], fx), index,
+            inputs.get("co2_price_eur_kg"), grid_params["tariff"].get("eur_to_local", 1.0))
+            if "external_co2" in blocks else None)
         self.battery = (battery.Battery(battery.load_params(market, self.currency, owned["battery"], fx))
                         if "battery" in blocks else None)
         # the general items
@@ -225,6 +247,11 @@ class System:
 
     def import_price(self, regime: str) -> pd.Series:
         return self.grid.import_price(regime)
+
+    @property
+    def heat_side(self) -> bool:
+        """Whether the system has a heat and CO2 side: a heat source (gas boiler, heat pump) or a CO2 source."""
+        return bool(self.heat_blocks or self.co2_blocks)
 
     @property
     def eta2(self) -> float:
@@ -256,7 +283,9 @@ def parameters(market: dict, business_model: str = "direct_sales", overrides: di
                  voltiris.load_params(market, currency, owned["voltiris"], fx),
                  gas_supply.load_params(market, currency, owned["gas_supply"], fx),
                  ng_boiler.load_params(market, currency, owned["ng_boiler"], fx),
+                 heat_pump.load_params(market, currency, owned["heat_pump"], fx),
                  thermal_storage.load_params(market, currency, owned["thermal_storage"], fx),
+                 external_co2.load_params(market, currency, owned["external_co2"], fx),
                  battery.load_params(market, currency, owned["battery"], fx),
                  commercial.load_params(market, currency, business_model, owned["commercial"], fx),
                  subsidies.load_params(market, currency, owned["subsidies"], fx),

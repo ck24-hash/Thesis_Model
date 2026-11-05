@@ -14,16 +14,27 @@ const S = {
 };
 // the battery model has no ancillary switch: "off" is these overrides (rate 0, no reserve)
 const ANCILLARY_OFF = { ancillary: { rate_per_kw_year: 0, reserve: { mode: "percent", frac: 0 } } };
+const SUBSIDY_OFF = { pv: { subsidies: { pv: { mode: "percent", frac: 0, amount: 0 } } },
+  battery: { subsidies: { battery: { mode: "percent", frac: 0, amount: 0 } } } };
+// the overrides the Off switches write: the ancillary reserve, the subsidy of a technology
+function switchOverrides() {
+  let o = {};
+  if (!$("sAncillary").checked) o = deepMerge(o, ANCILLARY_OFF);
+  if (!$("subPv").checked) o = deepMerge(o, SUBSIDY_OFF.pv);
+  if (!$("subBattery").checked) o = deepMerge(o, SUBSIDY_OFF.battery);
+  return o;
+}
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const COLORS = { load: "#334155", pv: "#e0a100", existing: "#a16207", imp: "#2563eb", exp: "#16a34a",
   bat: "#0f766e", soc: "#7c3aed", da: "#dc2626", neg: "#b42318", accent: "#0f766e", grey: "#94a3b8",
-  heat: "#ea580c", co2: "#64748b", gas: "#0891b2" };
+  heat: "#ea580c", co2: "#64748b", gas: "#0891b2", hp: "#c026d3" };
 const CONVERSION = { power: "repeated", price: "repeated", state: "repeated", energy: "divided", time: "rebuilt" };
 // the general items: what is not a physical block, and when its page is shown
 const GENERAL = [
   { id: "market", name: "Market", small: "country, tariff, currency", show: () => true },
-  { id: "commercial", name: "Commercial", small: "business model, prices, lifetimes", show: () => has("voltiris") || has("battery") || has("ng_boiler") },
+  { id: "commercial", name: "Commercial", small: "business model, prices, lifetimes",
+    show: () => ["voltiris", "battery", "ng_boiler", "heat_pump", "thermal_storage"].some(has) },
   { id: "subsidies", name: "Subsidies", small: "Voltiris and battery", show: () => has("voltiris") || has("battery") },
   { id: "ems", name: "EMS", small: "energy management costs", show: () => has("battery") },
 ];
@@ -105,6 +116,25 @@ Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
 Chart.defaults.font.size = 12;
 Chart.defaults.color = "#47515c";
 Chart.defaults.plugins.legend.labels.boxWidth = 12;
+// values over the bars of a chart that asks for them: options.plugins.barLabels = { text(i), color(i) }
+Chart.register({
+  id: "barLabels",
+  afterDatasetsDraw(c, _args, opts) {
+    if (!opts || !opts.text) return;
+    const ctx = c.ctx;
+    ctx.save();
+    ctx.font = `600 12px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    c.getDatasetMeta(0).data.forEach((bar, i) => {
+      const t = opts.text(i);
+      if (!t) return;
+      ctx.fillStyle = opts.color ? opts.color(i) : "#0f172a";
+      ctx.fillText(t, bar.x, Math.min(bar.y, bar.base) - 4);
+    });
+    ctx.restore();
+  },
+});
 function chart(id, config) {
   if (S.charts[id]) S.charts[id].destroy();
   // shallow on purpose: tick callbacks are functions, which a JSON copy would drop
@@ -148,37 +178,35 @@ function blockSmall(id) {
   if (!isBuilt(id)) return "not built yet";
   if (hasData(id)) {
     const d = S.data[id] || {};
-    if (!d.path) return id === "grid" ? "connection, regime" : !fileOptional(id) ? "no input file yet" : id === "gas_supply" ? "fixed price" : "losses, sizing";
+    if (!d.path) return id === "grid" ? "connection, regime" : !fileOptional(id) ? "no input file yet" : id === "thermal_storage" ? "losses, sizing" : id === "heat_pump" ? "COP, size" : "fixed price";
     return (d.info && d.info.error ? "problem · " : d.info && d.info.converted ? "→ 15 min · " : "") + fileName(d.path);
   }
   return id === "battery" ? "technology, reserve, sizing" : id === "ng_boiler" ? "efficiency, sizing" : "settings";
 }
-// the menu's groups (the blocks under System, the items under General) can be folded; the choice is kept in this browser
-S.navFolded = new Set();
-try { S.navFolded = new Set(JSON.parse(localStorage.getItem("navFolded") || "[]")); } catch (e) { /* no storage: all open */ }
+// the five sections are tabs along the top; a section's own pages (the blocks under System, the items under General) are in the side menu
+const SECTIONS = [["system", "System"], ["inputs", "Input data"], ["general", "General"], ["run", "Run"], ["results", "Results"]];
+const sectionOf = (step) => (["inputs", "run", "results"].includes(step) ? step : GENERAL.some((g) => g.id === step) ? "general" : "system");
 function renderNav() {
-  const item = (step, title, small, cls = "") => `<button data-step="${step}" class="sub ${cls}" title="${esc(title)}: ${esc(small)}"><i></i><span>${esc(title)}<small>${esc(small)}</small></span></button>`;
-  const fold = (group, count) => `<button type="button" class="caret" data-group="${group}" aria-expanded="${!S.navFolded.has(group)}" title="${S.navFolded.has(group) ? `Show the ${count} items` : "Hide the items"}">${S.navFolded.has(group) ? "&#9656;" : "&#9662;"}</button>`;
-  const sub = (group, html) => `<div class="nav-sub" data-group="${group}"${S.navFolded.has(group) ? " hidden" : ""}>${html}</div>`;
-  const blocks = chosenBlocks(), general = generalShown();
-  $("steps").innerHTML =
-    `<div class="nav-row"><button data-step="system"><b>1</b><span>System<small>the greenhouse and its blocks</small></span></button>${fold("system", blocks.length)}</div>` +
-    sub("system", blocks.map((id) => item(pageOf(id), blockInfo(id).name, blockSmall(id), isBuilt(id) ? "" : "planned")).join("")) +
-    `<button data-step="inputs"><b>2</b><span>Input data<small>every curve: year, month, week</small></span></button>` +
-    `<div class="nav-row"><div class="nav-group"><b>3</b><span>General<small>not tied to one block</small></span></div>${fold("general", general.length)}</div>` +
-    sub("general", general.map((g) => item(g.id, g.name, g.small)).join("")) +
-    `<button data-step="run"><b>4</b><span>Run<small>check, case file, progress</small></span></button>` +
-    `<button data-step="results" class="${S.results ? "done" : ""}"><b>5</b><span>Results<small>electricity, sizes, bills, dispatch</small></span></button>`;
+  const here = sectionOf(S.step), general = generalShown();
+  $("tabs").innerHTML = SECTIONS.filter(([id]) => id !== "general" || general.length).map(([id, name], i) =>
+    `<button data-section="${id}" class="${id === here ? "active" : ""}${id === "results" && S.results ? " done" : ""}"${id === here ? ' aria-current="page"' : ""}><b>${i + 1}</b>${esc(name)}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    const id = b.dataset.section;
+    if (id !== here) showStep(id === "general" ? general[0].id : id);
+  }));
+  const item = (step, title, small, cls = "") => `<button data-step="${step}" class="${cls}" title="${esc(title)}: ${esc(small)}"><span>${esc(title)}<small>${esc(small)}</small></span></button>`;
+  const side = here === "system"
+    ? `<div class="side-label">System</div>` + item("system", "Overview", "the greenhouse and its blocks") +
+      `<div class="side-label">Blocks</div>` + chosenBlocks().map((id) => item(pageOf(id), blockInfo(id).name, blockSmall(id), isBuilt(id) ? "" : "planned")).join("")
+    : here === "general" ? `<div class="side-label">General</div>` + general.map((g) => item(g.id, g.name, g.small)).join("") : "";
+  $("steps").innerHTML = side;
+  document.body.classList.toggle("no-side", !side);
   $("steps").querySelectorAll("button[data-step]").forEach((b) => {
     b.classList.toggle("active", b.dataset.step === S.step);
     b.addEventListener("click", () => showStep(b.dataset.step));
   });
-  $("steps").querySelectorAll("button.caret").forEach((b) => b.addEventListener("click", () => {
-    const g = b.dataset.group;
-    if (S.navFolded.has(g)) S.navFolded.delete(g); else S.navFolded.add(g);
-    try { localStorage.setItem("navFolded", JSON.stringify([...S.navFolded])); } catch (e) { /* the choice lasts until reload */ }
-    renderNav();
-  }));
+  const active = $("steps").querySelector("button.active");   // on a phone the menu is one row: the page open is in view
+  if (active) $("steps").scrollLeft = active.offsetLeft - $("steps").offsetLeft - 16;
   document.querySelectorAll("[data-nav]").forEach((box) => {
     const steps = order(), i = steps.indexOf(S.step);
     const prev = steps[i - 1], next = steps[i + 1];
@@ -200,7 +228,7 @@ function showStep(step) {
   }
   renderNav();
   window.scrollTo(0, 0);
-  if (["voltiris", "battery", "gas_supply", "ng_boiler", "thermal_storage", "market", "commercial", "subsidies", "ems", "run"].includes(step)) loadParams();
+  if (["voltiris", "battery", "gas_supply", "ng_boiler", "heat_pump", "thermal_storage", "external_co2", "market", "commercial", "subsidies", "ems", "run"].includes(step)) loadParams();
   if (CHECKED_PAGES.includes(step)) checkSetup(true);
   if (step === "run") renderCaseFile();
   if (hasData(step)) drawViewer("blk-" + step);
@@ -208,7 +236,7 @@ function showStep(step) {
   if (step === "results" && S.results) Object.values(S.charts).forEach((c) => c.resize());
 }
 
-// the menu can be hidden; the choice is kept in this browser
+// the side menu can be hidden; the choice is kept in this browser
 function setNav(hidden) {
   document.body.classList.toggle("nav-hidden", hidden);
   $("navToggle").setAttribute("aria-expanded", String(!hidden));
@@ -264,7 +292,7 @@ function greenhouseSvg() {
     <title>Greenhouse demand: the site's electricity load, and its heat and CO2 demand when a block supplies them</title>
     <path class="glass" d="${roof} L${GH.x1} ${GH.base} L${GH.x0} ${GH.base} Z"/>${panes}${plants}${modules}
     <text x="500" y="256" class="gh-name">Greenhouse</text>
-    <text x="500" y="274" class="gh-sub">${on ? (has("ng_boiler") ? "electricity, heat, CO2" : "electricity load") : "click to add"}</text></g>`;
+    <text x="500" y="274" class="gh-sub">${on ? ["electricity", (has("ng_boiler") || has("heat_pump")) && "heat", (has("ng_boiler") || has("external_co2")) && "CO2"].filter(Boolean).join(", ") : "click to add"}</text></g>`;
 }
 function nodeSvg(b, cx, cy) {
   const x = cx - NODE.w / 2, y = cy - NODE.h / 2, on = has(b.id), built = b.status === "model";
@@ -311,6 +339,10 @@ function renderDiagram() {
           const [ux, uy] = LAYOUT[u.id];
           lines += `<path class="flow" d="M${ux + 30} ${uy + NODE.h / 2} V${uy + NODE.h / 2 + 16} H${cx} V${cy + NODE.h / 2}" stroke="${CARRIER_COLOR.heat}"/>`;
         });
+      if (has("heat_pump")) {   // from the heat pump above it, along a rail on the right
+        const [hx, hy] = LAYOUT.heat_pump, rx = cx + NODE.w / 2 + 18;
+        lines += `<path class="flow" d="M${hx + NODE.w / 2} ${hy} H${rx} V${cy} H${cx + NODE.w / 2}" stroke="${CARRIER_COLOR.heat}"/>`;
+      }
     }
     if (!has("greenhouse")) return;
     if (b.id === "voltiris") { lines += `<path class="flow" d="M${cx} ${cy} L${cx} ${GH.peak + 8}" stroke="${CARRIER_COLOR.electricity}"/>`; return; }
@@ -338,9 +370,10 @@ function linked(blocks) {
   return set;
 }
 const names = (ids) => ids.map((x) => blockInfo(x).name).join(", ");
+const lc = (name) => /^(CO2|Voltiris)/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1);   // a name inside a sentence (CO2 and Voltiris keep their capitals)
 function linkReason(id) {
   const b = blockInfo(id);
-  if (b.follows) return `it comes with the ${b.follows.filter(isBuilt).map((x) => blockInfo(x).name.toLowerCase()).join(" or ")}`;
+  if (b.follows) return `it comes with the ${b.follows.filter(isBuilt).map((x) => lc(blockInfo(x).name)).join(" or ")}`;
   if (b.needs_one_of) return `it needs ${b.needs_one_of_label || "one of " + names(b.needs_one_of)}`;
   return `it needs ${names(b.needs || [])}`;
 }
@@ -349,7 +382,7 @@ function toggleBlock(id) {
   if (b.fixed) return toast(`${b.name} is always in the system.`);
   if (b.follows) {
     const with_ = b.follows.filter(isBuilt);
-    return toast(`${b.name} comes with the ${with_.map((x) => blockInfo(x).name.toLowerCase()).join(" or ")}: it is added and taken out with ${with_.length > 1 ? "them" : "it"}.`);
+    return toast(`${b.name} comes with the ${with_.map((x) => lc(blockInfo(x).name)).join(" or ")}: it is added and taken out with ${with_.length > 1 ? "them" : "it"}.`);
   }
   const before = new Set(S.system.blocks), next = new Set(before);
   if (has(id)) next.delete(id);
@@ -364,7 +397,7 @@ function toggleBlock(id) {
   const preset = S.options.presets.find((p) => p.id === S.system.preset);
   if (preset && !sameSet(new Set(preset.blocks), S.system.blocks)) S.system.preset = null;
   const notes = [];
-  if (added.length) notes.push(`Also added: ${added.map((x) => `${blockInfo(x).name} (${x === b.needs_one_of?.find(isBuilt) ? `the ${b.name.toLowerCase()} ${linkReason(id).replace("it ", "")}` : linkReason(x)})`).join(", ")}.`);
+  if (added.length) notes.push(`Also added: ${added.map((x) => `${blockInfo(x).name} (${x === b.needs_one_of?.find(isBuilt) ? `the ${lc(b.name)} ${linkReason(id).replace("it ", "")}` : linkReason(x)})`).join(", ")}.`);
   if (removed.length) notes.push(`Also taken out: ${removed.map((x) => `${blockInfo(x).name} (${linkReason(x)})`).join(", ")}.`);
   if (notes.length) toast(notes.join(" "));
   S.preview = null;
@@ -377,37 +410,10 @@ $("diagram").addEventListener("keydown", (ev) => {
 });
 
 // every run type that can run these blocks (the first is the default), or why none can
-// scenario B: this system without some blocks (it can only leave blocks out); the links between blocks apply
-S.compare = new Set();
-const compareOn = () => $("cmpOn").checked && S.compare.size > 0 && S.runType === "blocks";
-function scenarioB() {
-  const kept = linked(new Set(chosenBlocks().filter((x) => !S.compare.has(x))));
-  return { kept: chosenBlocks().filter((x) => kept.has(x)), also: chosenBlocks().filter((x) => !kept.has(x) && !S.compare.has(x)) };
-}
-function renderCompare() {
-  $("compareCard").hidden = S.runType !== "blocks";
-  const removable = chosenBlocks().filter((b) => isBuilt(b) && !blockInfo(b).fixed && !blockInfo(b).follows);
-  [...S.compare].forEach((b) => { if (!removable.includes(b)) S.compare.delete(b); });
-  $("cmpBox").hidden = !$("cmpOn").checked;
-  $("cmpBlocks").innerHTML = removable.length ? removable.map((b) => `<label class="chip"><input type="checkbox" data-block="${b}" ${S.compare.has(b) ? "checked" : ""}>${esc(blockInfo(b).name)}</label>`).join("")
-    : '<span class="muted">No block can be left out: greenhouse and grid are always in.</span>';
-  $("cmpBlocks").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => {
-    if (i.checked) S.compare.add(i.dataset.block); else S.compare.delete(i.dataset.block);
-    S.preview = null; renderCompare();
-  }));
-  const b = scenarioB();
-  $("cmpInfo").innerHTML = S.compare.size
-    ? `<b>A</b>: ${esc(names(chosenBlocks()))}.<br><b>B</b>: ${esc(names(b.kept))}.` +
-      (b.also.length ? `<br>Also left out in B: ${b.also.map((x) => `${esc(blockInfo(x).name)} (${esc(linkReason(x))})`).join(", ")}.` : "")
-    : "Tick at least one block for scenario B.";
-}
-$("cmpOn").addEventListener("change", () => { S.preview = null; renderCompare(); });
 
-// the sized blocks, and whether they are sized together
-const SIZED = ["ng_boiler", "thermal_storage", "battery"];
-const sizingMode = () => document.querySelector("input[name=sizing]:checked").value;
-const jointSizing = () => sizingMode() === "joint" && SIZED.filter(has).length >= 2 && S.runType === "blocks";
-document.querySelectorAll("input[name=sizing]").forEach((r) => r.addEventListener("change", () => { S.preview = null; updateTop(); }));
+// the sized blocks: the run sizes them all together (system/joint.py)
+const SIZED = ["ng_boiler", "heat_pump", "thermal_storage", "battery"];
+const jointSizing = () => S.runType === "blocks";
 function runTypeFor(blocks) {
   const ids = [], reasons = [];
   for (const rt of Object.values(S.options.run_types)) {
@@ -453,11 +459,17 @@ function systemChanged() {
     n.hidden = !!fit.id;
     n.innerHTML = "<b>No model can run the system of the System page yet.</b> The pages still show each block's input and settings.";
   });
-  $("runBtn").disabled = !fit.id;
+  $("runBtn").disabled = !fit.id || !!S.running;
   $("runInfo").textContent = fit.id ? "" : "Choose a system that runs on the System page.";
-  $("co2Seg").closest(".card").hidden = !has("ng_boiler");
-  $("sizingRow").hidden = !(fit.id === "blocks" && SIZED.filter(has).length >= 2);
-  renderCompare();
+  $("co2Seg").closest(".card").hidden = !has("ng_boiler") && !has("external_co2");
+  const byProduct = document.querySelector("input[name=co2mode][value=by_product]");   // bought CO2: the demand is met
+  byProduct.disabled = has("external_co2");
+  if (has("external_co2")) document.querySelector("input[name=co2mode][value=required]").checked = true;
+  $("sizingRow").hidden = $("runOptions").hidden = fit.id !== "blocks";
+  $("subPvRow").hidden = !has("voltiris");
+  $("subBatteryRow").hidden = !has("battery");
+  objectiveChanged();
+  $("hpCo2Note").hidden = !(has("heat_pump") && !has("ng_boiler") && !has("external_co2"));
   if (S.params) renderKeyParams();
   if (changed && fit.id && $("mUtility").value) loadParamsSoon();
   renderNav();
@@ -485,20 +497,21 @@ function collectCase() {
       if (Object.keys(d.columns).length) cfg.columns = { ...d.columns };
     }
     if (id === "voltiris") cfg.modules = Number($("sModules").value) || 0;
-    if (id === "greenhouse" && has("ng_boiler")) cfg.co2_mode = document.querySelector("input[name=co2mode]:checked").value;
-    if (id === "thermal_storage") {
-      const sizing = { objective: document.querySelector("input[name=sobjective]:checked").value };
-      const custom = Number($("sCustom").value), sizes = numbers($("sSizes").value);
-      if (custom > 0) sizing.custom_kwh = custom;
-      if (sizes.length) sizing.sizes_kwh = sizes;
-      cfg.sizing = sizing;
+    if (id === "greenhouse" && (has("ng_boiler") || has("external_co2"))) cfg.co2_mode = document.querySelector("input[name=co2mode]:checked").value;
+    if (id === "thermal_storage") {   // a fixed size may be 0 (no tank)
+      const size = $("sCustom").value === "" ? NaN : Number($("sCustom").value);
+      cfg.sizing = document.querySelector("input[name=sobjective]:checked").value === "custom" && size >= 0
+        ? { objective: "custom", custom_kwh: size } : { objective: "joint" };
     }
     if (id === "ng_boiler") {
-      const sizing = { objective: document.querySelector("input[name=bobjective]:checked").value };
-      const custom = Number($("bCustom").value), sizes = numbers($("bSizes").value);
-      if (custom > 0) sizing.custom_kw = custom;
-      if (sizes.length) sizing.sizes_kw = sizes;
-      cfg.sizing = sizing;
+      const size = $("bCustom").value === "" ? NaN : Number($("bCustom").value);
+      cfg.sizing = document.querySelector("input[name=bobjective]:checked").value === "custom" && size >= 0
+        ? { objective: "custom", custom_kw: size } : { objective: "joint" };
+    }
+    if (id === "heat_pump") {
+      const size = Number($("hpCustom").value);
+      cfg.sizing = document.querySelector("input[name=hpsize]:checked").value === "custom" && size > 0
+        ? { objective: "custom", custom_kw: size } : { objective: "joint" };
     }
     if (id === "grid") {
       const imp = $("sImport").value, exp = $("sExport").value;
@@ -508,8 +521,9 @@ function collectCase() {
         ? { auto: false, manual: $("sRegime").value } : { auto: true };
     }
     if (id === "battery") {
-      const sizing = {
-        objective: document.querySelector("input[name=objective]:checked").value,
+      const fixed = document.querySelector("input[name=zsize]:checked").value === "custom";
+      const sizing = {   // fixed: "custom"; sized by the model: the reference sweep's objective, for the battery check
+        objective: fixed ? "custom" : document.querySelector("input[name=objective]:checked").value,
         custom_kwh: Number($("zCustom").value) || 422,
         fine_grid_kwh: numbers($("zFine").value),
         fine_window_kwh: Number($("zWindow").value) || 0,
@@ -526,10 +540,10 @@ function collectCase() {
     market,
     blocks,
     general: { commercial: { business_model: $("mBusiness").value } },
-    overrides: $("sAncillary").checked ? currentOverrides() : deepMerge(currentOverrides(), ANCILLARY_OFF),
+    overrides: deepMerge(currentOverrides(), switchOverrides()),
     tag: $("rTag").value.trim() || "study",
-    system: { preset: S.system.preset, run_type: S.runType, sizing: sizingMode() },
-    compare: compareOn() ? { without: [...S.compare] } : undefined,
+    system: { preset: S.system.preset, run_type: S.runType, sensitivity: $("sSensitivity").checked,
+      battery_check: $("zCheck").checked },
   };
 }
 
@@ -537,9 +551,8 @@ function applyCase(c) {
   const blocks = c.blocks || {};
   const market = c.market || {};
   S.runTypeWanted = (c.system || {}).run_type || null;
-  document.querySelector(`input[name=sizing][value=${(c.system || {}).sizing === "sequential" ? "sequential" : "joint"}]`).checked = true;
-  S.compare = new Set((c.compare || {}).without || []);
-  $("cmpOn").checked = S.compare.size > 0;
+  $("sSensitivity").checked = (c.system || {}).sensitivity !== false;
+  $("zCheck").checked = (c.system || {}).battery_check !== false;
   setSystem(Object.keys(blocks), (c.system || {}).preset);
   $("dataYear").value = c.year || market.year || 2026;
   Object.keys(S.options.block_columns).forEach((id) => {
@@ -561,6 +574,12 @@ function applyCase(c) {
   const anc = rest.ancillary || {};
   const off = anc.rate_per_kw_year === 0 && anc.reserve && anc.reserve.frac === 0 && (anc.reserve.mode || "percent") === "percent";
   if (off) { delPath(rest, "ancillary.rate_per_kw_year"); delPath(rest, "ancillary.reserve.frac"); delPath(rest, "ancillary.reserve.mode"); }
+  const subOff = {};
+  ["pv", "battery"].forEach((t) => {
+    const x = (rest.subsidies || {})[t] || {};
+    subOff[t] = x.mode === "percent" && x.frac === 0 && x.amount === 0;
+    if (subOff[t]) ["mode", "frac", "amount"].forEach((k) => delPath(rest, `subsidies.${t}.${k}`));
+  });
   S.fieldValues = {};
   KEY_FIELDS.forEach((f) => {
     const val = getPath(rest, f.path);
@@ -568,7 +587,10 @@ function applyCase(c) {
   });
   $("jsonOverrides").value = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : "";
   $("sAncillary").checked = !off;
-  document.querySelector(`input[name=objective][value=${sz.objective || "profit"}]`).checked = true;
+  $("subPv").checked = !subOff.pv;
+  $("subBattery").checked = !subOff.battery;
+  document.querySelector(`input[name=zsize][value=${sz.objective === "custom" ? "custom" : "joint"}]`).checked = true;
+  document.querySelector(`input[name=objective][value=${sz.objective === "payback" ? "payback" : "profit"}]`).checked = true;
   objectiveChanged();
   $("zCustom").value = sz.custom_kwh || 422;
   $("zSweep").value = (sz.sweep_kwh || []).join(", ");
@@ -577,15 +599,17 @@ function applyCase(c) {
   $("zCap").checked = sz.cap_at_subsidy_size !== false;
   const gh = blocks.greenhouse || {}, bz = (blocks.ng_boiler || {}).sizing || {};
   document.querySelector(`input[name=co2mode][value=${gh.co2_mode === "by_product" ? "by_product" : "required"}]`).checked = true;
-  document.querySelector(`input[name=bobjective][value=${BOILER_HINT[bz.objective] ? bz.objective : "lifetime_cost"}]`).checked = true;
+  document.querySelector(`input[name=bobjective][value=${bz.objective === "custom" && bz.custom_kw != null ? "custom" : "joint"}]`).checked = true;
   boilerObjectiveChanged();
-  $("bCustom").value = bz.custom_kw || "";
-  $("bSizes").value = (bz.sizes_kw || []).join(", ");
+  $("bCustom").value = bz.custom_kw != null ? bz.custom_kw : "";
   const tz = (blocks.thermal_storage || {}).sizing || {};
-  document.querySelector(`input[name=sobjective][value=${STORAGE_HINT[tz.objective] ? tz.objective : "profit"}]`).checked = true;
+  document.querySelector(`input[name=sobjective][value=${tz.objective === "custom" && tz.custom_kwh != null ? "custom" : "joint"}]`).checked = true;
   storageObjectiveChanged();
-  $("sCustom").value = tz.custom_kwh || "";
-  $("sSizes").value = (tz.sizes_kwh || []).join(", ");
+  $("sCustom").value = tz.custom_kwh != null ? tz.custom_kwh : "";
+  const hz = (blocks.heat_pump || {}).sizing || {};
+  document.querySelector(`input[name=hpsize][value=${hz.objective === "custom" && hz.custom_kw ? "custom" : "joint"}]`).checked = true;
+  $("hpCustom").value = hz.custom_kw || "";
+  hpSizeChanged();
   $("rTag").value = c.tag || "study";
   $("rFolder").value = "";
   S.preview = null;
@@ -615,6 +639,7 @@ function updateTop() {
   const preset = S.options && S.options.presets.find((p) => p.id === S.system.preset);
   const m = $("mCountry").value ? `${$("mCountry").value} · ${$("mRegion").value} · ${($("mUtility").value || "").replace("|", " ")}` : "";
   t.textContent = `${$("rTag").value || "study"} · ${preset ? preset.name : "own system"}${m ? " · " + m : ""}`;
+  t.title = t.textContent;
 }
 
 // -- case files ------------------------------------------------------------------------------------------------------
@@ -656,6 +681,7 @@ const SERIES_STYLE = {
   co2_kg_h: { label: "CO2 demand", color: COLORS.co2 },
   gas_price_eur_kwh: { label: "Gas price", color: COLORS.gas },
   outside_temp_c: { label: "Outside temperature", color: "#0284c7" },
+  co2_price_eur_kg: { label: "CO2 price", color: COLORS.co2 },
 };
 function curveSeries(blocks) {
   const out = [];
@@ -913,10 +939,13 @@ const KEY_FIELDS = [
   ["commercial", "Heat storage", "capex.thermal_storage_per_kwh", "Storage price", "per kWh of heat stored", "num", "Investment per kWh of size, installed. TO CHECK: placeholder."],
   ["commercial", "Heat storage", "capex.thermal_storage_fixed_om_per_kwh_year", "Fixed O&M", "per kWh of size and year", "num", "Yearly maintenance per kWh of size, taken off the storage's yearly value. TO CHECK: placeholder."],
   ["commercial", "Heat storage", "finance.thermal_storage_life_yr", "Storage life", "years", "num", "A size counts as paying back if it does within this many years; lifetime profit = yearly value × life − investment. TO CHECK: placeholder."],
+  ["commercial", "Heat pump", "capex.heat_pump_per_kw_th", "Heat pump price", "per kW of heat", "num", "Investment per kW of heat output, installed. TO CHECK: placeholder."],
+  ["commercial", "Heat pump", "capex.heat_pump_fixed_om_per_kw_year", "Fixed O&M", "per kW of heat and year", "num", "Yearly maintenance per kW of size, whether it runs or not. TO CHECK: placeholder."],
+  ["commercial", "Heat pump", "finance.heat_pump_life_yr", "Heat pump life", "years", "num", "Its investment is spread over this life in the site's yearly cost. TO CHECK: placeholder."],
   ["storage", "", "thermal_storage.charge_efficiency", "Charge efficiency", "%", "pct", "Share of the heat sent to the tank that is stored. TO CHECK: placeholder."],
   ["storage", "", "thermal_storage.discharge_efficiency", "Discharge efficiency", "%", "pct", "Share of the stored heat that reaches the greenhouse. TO CHECK: placeholder."],
   ["storage", "", "thermal_storage.power_kw_per_kwh", "Power", "kW in or out per kWh of size", "num", "The most heat the tank takes in, and gives out, per hour, per kWh of size: 0.25 fills it in 4 hours. TO CHECK: placeholder."],
-  ["storage", "Heat loss", "thermal_storage.loss.mode", "Loss model", "", "select:constant|seasonal|dynamic", "constant: the same share of the stored heat lost every hour; seasonal: one share per season; dynamic: from the outside temperature of the input file, hour by hour (more loss when it is colder outside)."],
+  ["storage", "Heat loss", "thermal_storage.loss.mode", "Loss model", "", "select:constant|seasonal|dynamic", "constant: the same share of the stored heat lost every hour; seasonal: one share per season; dynamic: from the outside temperature of the input file, step by step (more loss when it is colder outside)."],
   ["storage", "Heat loss", "thermal_storage.loss.constant_per_hour", "Loss", "% of the heat stored, per hour", "pct", "TO CHECK: placeholder."],
   ["storage", "Heat loss", "thermal_storage.loss.seasonal_per_hour.winter", "Winter (Dec to Feb)", "% per hour", "pct", "TO CHECK: placeholder."],
   ["storage", "Heat loss", "thermal_storage.loss.seasonal_per_hour.spring", "Spring (Mar to May)", "% per hour", "pct"],
@@ -925,6 +954,13 @@ const KEY_FIELDS = [
   ["storage", "Heat loss", "thermal_storage.loss.dynamic.loss_per_hour_at_ref", "Loss at the reference", "% per hour", "pct", "Share lost per hour when it is the reference temperature outside. At another temperature it scales with (tank − outside) ÷ (tank − reference). TO CHECK: placeholder."],
   ["storage", "Heat loss", "thermal_storage.loss.dynamic.store_temp_c", "Tank temperature", "°C", "num", "Mean water temperature in the tank. TO CHECK: placeholder."],
   ["storage", "Heat loss", "thermal_storage.loss.dynamic.ref_outside_temp_c", "Reference outside temperature", "°C", "num", "The outside temperature at which the loss is the reference loss. TO CHECK: placeholder."],
+  ["hp", "", "heat_pump.cop.mode", "COP", "", "select:dynamic|constant", "dynamic: from the outside temperature of the block's input file, step by step; constant: the nominal COP all year."],
+  ["hp", "", "heat_pump.cop.nominal", "Nominal COP", "kWh of heat per kWh of electricity", "num", "In the dynamic mode, the COP at the reference outside temperature; in the constant mode, the COP all year. TO CHECK: placeholder."],
+  ["hp", "", "heat_pump.supply_temp_c", "Supply temperature", "°C", "num", "Temperature of the heat given to the greenhouse (its heating water). The dynamic COP falls as the gap between it and the outside air grows."],
+  ["hp", "", "heat_pump.cop.ref_outside_temp_c", "Reference outside temperature", "°C", "num", "The outside temperature at which the COP is the nominal COP. Dynamic COP = nominal × (supply − reference) ÷ (supply − outside). TO CHECK: placeholder."],
+  ["co2", "", "external_co2.price_per_kg", "Fixed CO2 price", "per kg; none = the input file", "num", "Used only when the block has no input file: CO2 then costs this price all year. In the market's currency."],
+  ["co2", "", "external_co2.fixed_cost_per_year", "Fixed cost", "per year", "num", "Yearly fixed cost of the supply (tank and evaporator rental, contract). TO CHECK: placeholder (0)."],
+  ["co2", "", "external_co2.max_kg_h", "Most CO2 per hour", "kg/h; none = as needed", "num", "The most the supply can deliver per hour (evaporator). Empty (default): as much as the greenhouse needs. TO CHECK."],
   ["boiler", "", "boiler.efficiency", "Efficiency", "% (heat per kWh of gas, LHV)", "pct", "kWh of heat per kWh of gas burnt, on the lower heating value. TO CHECK: placeholder."],
   ["boiler", "", "boiler.co2_use_frac", "Flue gas CO2 usable", "% of the CO2 of the gas burnt", "pct", "Share of the CO2 of the gas burnt that can go to the greenhouse after cleaning; the rest is vented. TO CHECK: placeholder."],
   ["gas", "", "gas.price_per_kwh", "Fixed gas price", "per kWh of gas; none = the input file", "num", "Used only when the block has no input file: the gas then costs this price at every step. In the market's currency."],
@@ -949,9 +985,13 @@ const KEY_FIELDS = [
 
 // a field about one block shows only when the system has that block
 function fieldShown(f) {
+  if (/^heat_pump\.(supply_temp_c|cop\.ref_outside_temp_c)/.test(f.path))   // used by the dynamic COP only
+    return has("heat_pump") && (getPath((S.params || {}).effective, "heat_pump.cop.mode") || "dynamic") === "dynamic";
+  if (/heat_pump/.test(f.path)) return has("heat_pump");
   const loss = /^thermal_storage\.loss\.(constant|seasonal|dynamic)/.exec(f.path);   // only the loss model in use
   if (loss) return has("thermal_storage") && loss[1] === (getPath((S.params || {}).effective, "thermal_storage.loss.mode") || "constant");
   if (/thermal_storage/.test(f.path)) return has("thermal_storage");
+  if (/external_co2/.test(f.path)) return has("external_co2");
   if (/boiler/.test(f.path)) return has("ng_boiler");
   if (/battery|^ancillary\.|^ems\./.test(f.path)) return has("battery");
   if (/^subsidies\.pv|pv_per_wp|price_per_mwh/.test(f.path)) return has("voltiris");
@@ -965,71 +1005,107 @@ function shown(f, v) {
   if (f.kind === "tiers") return v.map((t) => `${t[0]}:${+Number(t[1]).toFixed(4)}`).join(", ");
   return String(v);
 }
+// the value typed in a field; undefined when it is not one (empty, half typed)
 function parsed(f, text) {
-  if (f.kind === "pct") return Number(text) / 100;
-  if (f.kind === "num") return Number(text);
-  if (f.kind === "tiers") return text.split(",").map((p) => p.split(":").map(Number)).filter((t) => t.length === 2 && t.every(isFinite));
+  if (/^none$/i.test(text) && /none/.test(f.unit)) return null;   // "none" only where the unit allows it
+  if (f.kind === "pct" || f.kind === "num") {
+    const v = text === "" ? NaN : Number(text);
+    return isFinite(v) ? (f.kind === "pct" ? v / 100 : v) : undefined;
+  }
+  if (f.kind === "tiers") {
+    const tiers = text.split(",").map((p) => p.split(":").map(Number)).filter((t) => t.length === 2 && t.every(isFinite));
+    return tiers.length ? tiers : undefined;
+  }
   return text;
 }
 function currentOverrides() {
   let json = {};
   const text = $("jsonOverrides").value.trim();
-  if (text) { try { json = JSON.parse(text); $("jsonError").textContent = ""; } catch (e) { $("jsonError").textContent = "Not valid JSON in the other overrides: " + e.message; } }
+  $("jsonError").textContent = "";
+  if (text) { try { json = JSON.parse(text); } catch (e) { $("jsonError").textContent = "Not valid JSON in the other overrides: " + e.message; } }
   const fields = {};
   Object.entries(S.fieldValues).forEach(([p, v]) => setPath(fields, p, v));
   return deepMerge(json, fields);
 }
 
+// the overrides that are not the key fields': the JSON box, and the ancillary switch when it is off (it wins)
+function otherOverrides() {
+  let json = {};
+  try { json = JSON.parse($("jsonOverrides").value.trim() || "{}"); } catch (e) { /* shown by currentOverrides */ }
+  return deepMerge(json, switchOverrides());
+}
+
 function renderKeyParams() {
-  const d = S.params.defaults;
-  ["voltiris", "battery", "reserve", "commercial", "subsidies", "ems", "boiler", "gas", "storage"].forEach((page) => {
+  const d = S.params.defaults, other = otherOverrides();
+  // a re-render (after each change, once the parameters are reloaded) keeps the field being typed in as it is
+  const a = document.activeElement, typing = a && a.dataset && a.dataset.path
+    ? { path: a.dataset.path, text: a.value, start: a.selectionStart, end: a.selectionEnd } : null;
+  ["voltiris", "battery", "reserve", "commercial", "subsidies", "ems", "boiler", "gas", "hp", "storage", "co2"].forEach((page) => {
     const box = $("kp-" + page), groups = {};
     KEY_FIELDS.filter((f) => f.page === page && fieldShown(f) && getPath(d, f.path) !== undefined)
       .forEach((f) => (groups[f.group] = groups[f.group] || []).push(f));
     box.innerHTML = "";
+    const card = box.closest(".card"), title = card && card.querySelector(":scope > h2, :scope > .card-head > h2");
+    if (title) title.querySelectorAll(".reset-btn").forEach((b) => b.remove());
     Object.entries(groups).forEach(([group, fields]) => {
-      const g = el("div", { class: group ? "pgroup" : "pgroup bare" }, group ? `<h3>${esc(group)}</h3>` : "");
+      const g = el("div", { class: group ? "pgroup" : "pgroup bare" });
+      // back to the file values: in the group's title, or in the card's title for the fields without a group
+      const reset = el("button", { class: "reset-btn", type: "button", title: `Back to the default values${group ? " of " + group : ""}` }, "&#8634; Defaults");
+      reset.addEventListener("click", () => {
+        fields.forEach((f) => delete S.fieldValues[f.path]);
+        S.preview = null;
+        renderKeyParams();
+        loadParamsSoon();
+      });
+      if (group) g.appendChild(el("div", { class: "pg-head" }, `<h3>${esc(group)}</h3>`)).appendChild(reset);
+      else if (title) title.appendChild(reset);
+      else g.appendChild(el("div", { class: "pg-head" })).appendChild(reset);
       fields.forEach((f) => {
-        const def = getPath(d, f.path), changed = f.path in S.fieldValues;
-        const r = el("div", { class: "prow" + (f.kind === "tiers" ? " wide" : "") + (changed ? " changed" : "") });
+        // without a typed value the field shows the one in force: set in the JSON box or by the ancillary switch,
+        // else the file's (a default converted from another currency is shown rounded; it is used exact)
+        const def = getPath(d, f.path), set = getPath(other, f.path), elsewhere = set !== undefined;
+        const base = elsewhere ? set : def, value = f.path in S.fieldValues ? S.fieldValues[f.path] : base;
+        const now = () => f.path in S.fieldValues ? S.fieldValues[f.path]
+          : !elsewhere && f.kind === "num" && typeof def === "number" ? +(Math.abs(def) >= 1 ? def.toFixed(2) : def.toPrecision(3)) : base;
+        const r = el("div", { class: "prow" + (f.kind === "tiers" ? " wide" : "") });
         r.innerHTML = `<label><span>${esc(f.label)}${f.info ? ` <span class="info" tabindex="0" data-tip="${esc(f.info)}">i</span>` : ""}</span>` +
-          `<small>${esc(f.unit)}${f.unit ? " · " : ""}default ${esc(shown(f, def))}</small></label>`;
+          (f.unit ? `<small>${esc(f.unit)}</small>` : "") + `</label>`;
         let input;
         if (f.kind.startsWith("select:")) {
-          input = el("select", {}, `<option value="">${esc(def)} (default)</option>` + f.kind.slice(7).split("|").filter((o) => o !== def)
-            .map((o) => `<option ${S.fieldValues[f.path] === o ? "selected" : ""}>${o}</option>`).join(""));
+          const opts = f.kind.slice(7).split("|");
+          if (!opts.includes(def)) opts.unshift(def);
+          input = el("select", { "data-path": f.path }, opts.map((o) => `<option ${o === value ? "selected" : ""}>${esc(o)}</option>`).join(""));
         } else {
-          input = el("input", { placeholder: shown(f, def), inputmode: "decimal" });
-          input.value = changed ? shown(f, S.fieldValues[f.path]) : "";
+          input = el("input", { inputmode: "decimal", "data-path": f.path,
+            title: (elsewhere ? (getPath(switchOverrides(), f.path) !== undefined ? "Set by an Off switch. " : "Set in the other overrides (JSON). ") : "") + `Default: ${shown(f, def)}` });
+          if (elsewhere) input.classList.add("set-elsewhere");
+          input.value = shown(f, now());
         }
-        const reset = el("button", { class: "reset", type: "button", title: "Back to the default", "aria-label": "Back to the default" }, "&#8634;");
-        reset.hidden = !changed;
-        const update = () => { S.preview = null; loadParamsSoon(); };
-        input.addEventListener("input", () => {
-          const text = input.value.trim();
-          const value = text === "" ? undefined : parsed(f, text);
-          const same = value === undefined || JSON.stringify(value) === JSON.stringify(def) ||
-            (typeof value === "number" && Math.abs(value - def) < 1e-12) || (typeof value === "number" && !isFinite(value));
-          if (same) delete S.fieldValues[f.path]; else S.fieldValues[f.path] = value;
-          r.classList.toggle("changed", !same);
-          reset.hidden = same;
-          update();
+        const store = () => {
+          const v = parsed(f, input.value.trim());
+          if (v === undefined) return;   // not a value (yet): the last one holds
+          const same = JSON.stringify(v) === JSON.stringify(base) || (typeof v === "number" && typeof base === "number" && Math.abs(v - base) < 1e-12);
+          if (same) delete S.fieldValues[f.path]; else S.fieldValues[f.path] = v;
+          S.preview = null;
+          loadParamsSoon();
+        };
+        input.addEventListener("input", store);
+        input.addEventListener("change", () => {   // leaving the field: it shows the value in use
+          store();
+          if (input.tagName === "INPUT") input.value = shown(f, now());
         });
-        reset.addEventListener("click", () => {
-          delete S.fieldValues[f.path];
-          input.value = "";
-          r.classList.remove("changed");
-          reset.hidden = true;
-          update();
-        });
-        const box = el("div", { class: "pin" });
-        box.append(input, reset);
-        r.appendChild(box);
+        r.appendChild(input);
         g.appendChild(r);
       });
       box.appendChild(g);
     });
   });
+  const back = typing && document.querySelector(`[data-path="${typing.path}"]`);
+  if (back && back.tagName === "INPUT") {
+    back.value = typing.text;
+    back.focus();
+    try { back.setSelectionRange(typing.start, typing.end); } catch (e) { /* not a text field */ }
+  } else if (back) back.focus();
 }
 
 // what 100 kWh bought gives the optimiser, from the parameters in force (the rule of elements/battery/tech.py)
@@ -1077,7 +1153,7 @@ async function loadParams() {
   if (regimes.includes(keep)) $("sRegime").value = keep;
 }
 const loadParamsSoon = debounce(loadParams, 400);
-$("jsonOverrides").addEventListener("input", () => { S.preview = null; loadParamsSoon(); });
+$("jsonOverrides").addEventListener("input", () => { S.preview = null; currentOverrides(); loadParamsSoon(); });
 
 function renderParamBlocks(overrides) {
   const eff = S.params.effective, src = S.params.sources;
@@ -1095,53 +1171,36 @@ function stripNotes(o) {
 
 // -- battery: sizing ----------------------------------------------------------------------------------------------------
 const OBJECTIVE_HINT = {
-  profit: "The highest lifetime profit (yearly value × battery life − investment) among the sizes that pay back within the battery life; if none does, the shortest payback.",
-  payback: "The shortest payback among the sizes tested.",
-  custom: "The tested size closest to the custom size, which is added to the list.",
+  profit: "The reference sweep keeps the highest lifetime profit (yearly value × battery life − investment) among the sizes that pay back within the battery life; if none does, the shortest payback.",
+  payback: "The reference sweep keeps the shortest payback among the sizes it tests.",
 };
 function objectiveChanged() {
-  const o = document.querySelector("input[name=objective]:checked").value;
-  $("objHint").textContent = OBJECTIVE_HINT[o];
-  $("customRow").hidden = o !== "custom";
+  $("objHint").textContent = OBJECTIVE_HINT[document.querySelector("input[name=objective]:checked").value];
+  const fixed = document.querySelector("input[name=zsize]:checked").value === "custom";
+  $("customRow").hidden = !fixed;
+  $("zCheckRow").hidden = !has("battery") || fixed;   // the check runs when the model sizes the battery
 }
-["sModules", "sImport", "sExport", "sRegime", "sAncillary", "zCustom", "zSweep", "zFine", "zWindow", "zCap"].forEach((id) =>
-  $(id).addEventListener("change", () => { S.preview = null; updateTop(); if (id === "sAncillary") loadParamsSoon(); checkSetupSoon(); }));
+["sModules", "sImport", "sExport", "sRegime", "sAncillary", "subPv", "subBattery", "zCustom", "zSweep", "zFine", "zWindow", "zCap", "zCheck", "sSensitivity"].forEach((id) =>
+  $(id).addEventListener("change", () => { S.preview = null; updateTop(); if (["sAncillary", "subPv", "subBattery"].includes(id)) loadParamsSoon(); checkSetupSoon(); }));
 document.querySelectorAll("input[name=regimeMode]").forEach((r) => r.addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
-document.querySelectorAll("input[name=objective]").forEach((r) => r.addEventListener("change", () => { objectiveChanged(); S.preview = null; checkSetupSoon(); }));
+$("sRegime").addEventListener("change", () => (S.manualRegime = $("sRegime").value));
+document.querySelectorAll("input[name=objective], input[name=zsize]").forEach((r) => r.addEventListener("change", () => { objectiveChanged(); S.preview = null; checkSetupSoon(); }));
 $("checkSetup").addEventListener("click", () => checkSetup(false));
 $("zDefault").addEventListener("click", () => { $("zSweep").value = RT().sizing_defaults.sweep_kwh.join(", "); S.preview = null; checkSetupSoon(); });
 const checkSetupSoon = debounce(() => checkSetup(true), 500);
 
-// -- gas boiler: sizing -------------------------------------------------------------------------------------------------
-const BOILER_HINT = {
-  lifetime_cost: "The lowest lifetime cost (investment + yearly cost × boiler life) among the sizes that cover the demand; if none covers it, the largest size tested.",
-  smallest: "The smallest size that covers the demand (nothing left unmet); if none does, the largest size tested.",
-  custom: "The tested size closest to the custom size, which is added to the list.",
-};
-const BOILER_OBJECTIVE = { lifetime_cost: "lowest lifetime cost", smallest: "smallest that covers", custom: "custom size" };
-function boilerObjectiveChanged() {
-  const o = document.querySelector("input[name=bobjective]:checked").value;
-  $("bObjHint").textContent = BOILER_HINT[o];
-  $("bCustomRow").hidden = o !== "custom";
-}
+// -- gas boiler and heat storage: sized by the model, or a fixed size ----------------------------------------------------
+function boilerObjectiveChanged() { $("bCustomRow").hidden = document.querySelector("input[name=bobjective]:checked").value !== "custom"; }
 document.querySelectorAll("input[name=bobjective]").forEach((r) => r.addEventListener("change", () => { boilerObjectiveChanged(); S.preview = null; checkSetupSoon(); }));
 document.querySelectorAll("input[name=co2mode]").forEach((r) => r.addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
-["bCustom", "bSizes"].forEach((id) => $(id).addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
-
-// -- heat storage: sizing -----------------------------------------------------------------------------------------------
-const STORAGE_HINT = {
-  profit: "The highest lifetime profit (yearly value × storage life − investment) among the sizes that pay back within the storage life; if none does, the shortest payback.",
-  payback: "The shortest payback among the sizes tested.",
-  custom: "The tested size closest to the custom size, which is added to the list.",
-};
-const STORAGE_OBJECTIVE = { profit: "highest lifetime profit", payback: "shortest payback", custom: "custom size" };
-function storageObjectiveChanged() {
-  const o = document.querySelector("input[name=sobjective]:checked").value;
-  $("sObjHint").textContent = STORAGE_HINT[o];
-  $("sCustomRow").hidden = o !== "custom";
-}
+function storageObjectiveChanged() { $("sCustomRow").hidden = document.querySelector("input[name=sobjective]:checked").value !== "custom"; }
 document.querySelectorAll("input[name=sobjective]").forEach((r) => r.addEventListener("change", () => { storageObjectiveChanged(); S.preview = null; checkSetupSoon(); }));
-["sCustom", "sSizes"].forEach((id) => $(id).addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
+["bCustom", "sCustom"].forEach((id) => $(id).addEventListener("change", () => { S.preview = null; checkSetupSoon(); }));
+
+// -- heat pump: size ----------------------------------------------------------------------------------------------------
+function hpSizeChanged() { $("hpCustomRow").hidden = document.querySelector("input[name=hpsize]:checked").value !== "custom"; }
+document.querySelectorAll("input[name=hpsize]").forEach((r) => r.addEventListener("change", () => { hpSizeChanged(); S.preview = null; checkSetupSoon(); }));
+$("hpCustom").addEventListener("change", () => { S.preview = null; checkSetupSoon(); });
 
 // sizes from a range and an interval
 function rangeList() {
@@ -1173,13 +1232,19 @@ rangeInfo();
 // -- the setup check (no solve) ---------------------------------------------------------------------------------------
 // a block whose input file may be left out: the grid's (the setup check says if its tariff needs it), and the gas
 // supply's when a fixed gas price is set
-const OPTIONAL_FILE = { gas_supply: "fixed price", thermal_storage: "only for the dynamic heat loss" };
+const OPTIONAL_FILE = { gas_supply: "fixed price", thermal_storage: "only for the dynamic heat loss", external_co2: "fixed price",
+  heat_pump: "only for the dynamic COP" };
 function fileOptional(id) {
   if (id === "grid") return true;
+  if (id === "heat_pump") {
+    const mode = getPath(currentOverrides(), "heat_pump.cop.mode") || getPath((S.params || {}).defaults, "heat_pump.cop.mode");
+    return mode === "constant";
+  }
   if (id === "thermal_storage") {
     const mode = getPath(currentOverrides(), "thermal_storage.loss.mode") || getPath((S.params || {}).defaults, "thermal_storage.loss.mode");
     return mode !== "dynamic";
   }
+  if (id === "external_co2") return getPath(currentOverrides(), "external_co2.price_per_kg") != null || getPath((S.params || {}).defaults, "external_co2.price_per_kg") != null;
   if (id !== "gas_supply") return false;
   return getPath(currentOverrides(), "gas.price_per_kwh") != null || getPath((S.params || {}).defaults, "gas.price_per_kwh") != null;
 }
@@ -1187,7 +1252,7 @@ function fileOptional(id) {
 function missingFiles() {
   return chosenBlocks().filter((id) => isBuilt(id) && hasData(id) && !fileOptional(id) && !S.data[id].path);
 }
-const CHECKED_PAGES = ["battery", "ng_boiler", "thermal_storage", "market", "commercial", "subsidies", "run"];   // the setup check runs on them
+const CHECKED_PAGES = ["battery", "ng_boiler", "heat_pump", "thermal_storage", "external_co2", "market", "commercial", "subsidies", "run"];   // the setup check runs on them
 
 async function checkSetup(quiet) {
   if (quiet && (!CHECKED_PAGES.includes(S.step) || S.preview)) return;
@@ -1201,7 +1266,7 @@ async function checkSetup(quiet) {
     renderPreview();
   } catch (e) {
     $("checkInfo").textContent = "";
-    $("zPlan").textContent = $("bPlan").textContent = $("sPlan").textContent = "The setup has a problem: " + e.message;
+    $("zPlan").textContent = $("bPlan").textContent = $("sPlan").textContent = $("hpPlan").textContent = "The setup has a problem: " + e.message;
     toast(e.message, true);
   }
 }
@@ -1217,8 +1282,8 @@ function renderPreview() {
     ["Grid import limit", `${fmt(p.grid.import_max_kw, 0)} kW`, p.grid.import_auto ? "automatic" : "from the Grid page"],
     ["Grid export limit", `${fmt(p.grid.export_max_kw, 0)} kW`, p.grid.export_auto ? "automatic" : "from the Grid page"],
     ["One-meter rules", `${fmt(p.meter.export_pays_more_h, 0)} h`, `exporting pays more · ${fmt(p.meter.negative_price_h, 1)} h negative price`],
-    b && ["Heat demand", `${fmt(b.heat_demand_mwh, 0)} MWh`, `peak ${fmt(b.heat_peak_kw, 0)} kW`],
-    b && ["CO2 demand", `${fmt(b.co2_demand_t, 1)} t`, `peak ${fmt(b.co2_peak_kg_h, 1)} kg/h`],
+    p.heat && p.heat.heat_demand_mwh != null && ["Heat demand", `${fmt(p.heat.heat_demand_mwh, 0)} MWh`, `peak ${fmt(p.heat.heat_peak_kw, 0)} kW`],
+    p.heat && p.heat.co2_demand_t != null && ["CO2 demand", `${fmt(p.heat.co2_demand_t, 1)} t`, `peak ${fmt(p.heat.co2_peak_kg_h, 1)} kg/h`],
   ]);
   tiles("pvMoney", [
     ["Business model", t.business_model === "eaas" ? (t.eaas ? "EaaS" : "EaaS (inactive: 0 modules)") : "Direct sales"],
@@ -1226,6 +1291,7 @@ function renderPreview() {
     bat && ["Battery price", `${money(m.price_per_kwh_at["100"])}/kWh`, `at 100 kWh · ${money(m.price_per_kwh_at["1000"])}/kWh at 1,000 kWh`],
     bat && ["Lifetimes", `${fmt(m.pv_life_yr)} / ${fmt(m.battery_life_yr)} yr`, "PV (the study's horizon) / battery"],
     b && ["Gas boiler", `${money(b.capex_per_kw)}/kW`, `of heat · life ${fmt(b.life_yr)} yr`],
+    p.heat_pump && ["Heat pump", `${money(p.heat_pump.capex_per_kw)}/kW`, `of heat · life ${fmt(p.heat_pump.life_yr)} yr`],
   ]);
   tiles("pvSubsidy", [
     bat && ["100 kWh of battery after subsidy", money(m.price_after_subsidy_100), `${m.subsidy_mode}${m.subsidy_frac ? ` ${fmt(m.subsidy_frac * 100, 0)} %` : ""}`],
@@ -1242,6 +1308,12 @@ function renderPreview() {
   ]);
   $("pvPrices").innerHTML = `<tr><th>Import price, ${cur()}/kWh</th><th>Mean</th><th>Weighted by load</th><th>Lowest</th><th>Highest</th></tr>` +
     Object.entries(t.import_price).map(([reg, v]) => `<tr${reg === r.start ? ' class="hl"' : ""}><td>Regime ${esc(reg)}</td><td>${fmt(v.mean, 4)}</td><td>${fmt(v.weighted, 4)}</td><td>${fmt(v.min, 4)}</td><td>${fmt(v.max, 4)}</td></tr>`).join("");
+  const plan = (block, unit) => {   // how the run sizes a block
+    const js = p.joint_sizing || { plan: {} }, v = js.plan[block];
+    return v === null || v === undefined
+      ? "<b>Sized by the model</b> with the other ticked blocks, for the lowest yearly cost of the site."
+      : v === 0 ? "<b>Fixed at 0</b>: not installed in this run." : `<b>Fixed</b> at ${fmt(v)} ${unit}.`;
+  };
   if (b) {
     const co2PerHeat = (b.emission_factor * b.co2_use_frac) / b.efficiency;   // kg CO2 usable per kWh of heat
     tiles("pvBoiler", [
@@ -1251,8 +1323,36 @@ function renderPreview() {
       ["CO2 per MWh of heat", `${fmt(co2PerHeat * 1000, 0)} kg`, `usable, at ${fmt(b.efficiency * 100, 0)} % efficiency`],
       ["Gas price", `${fmt(b.gas_price_mean, 4)} ${cur()}/kWh`, `min ${fmt(b.gas_price_min, 4)} · max ${fmt(b.gas_price_max, 4)}${b.levy_per_kg ? ` · levy ${fmt(b.levy_per_kg * b.emission_factor, 4)}/kWh` : ""}`],
     ]);
-    $("bPlan").innerHTML = `The model will solve <b>${b.sizes.length} sizes</b>: ${b.sizes.map((x) => fmt(x)).join(", ")} kW of heat. ` +
-      `Objective: <b>${BOILER_OBJECTIVE[b.objective]}</b>.` + (bat ? " The chosen size is then fixed for the battery study." : "");
+    $("bPlan").innerHTML = plan("ng_boiler", "kW of heat");
+  }
+  const x = p.co2;
+  if (x) {
+    tiles("pvCo2", [
+      ["CO2 price", `${fmt(x.price_mean, 3)} ${cur()}/kg`, `min ${fmt(x.price_min, 3)} · max ${fmt(x.price_max, 3)}`, "accent"],
+      x.gas_eq_mean != null && ["Gas burnt for CO2", `${fmt(x.gas_eq_mean, 3)} ${cur()}/kg`, `min ${fmt(x.gas_eq_min, 3)} · max ${fmt(x.gas_eq_max, 3)} · when its heat is not needed`],
+      ["CO2 demand", `${fmt(x.co2_demand_t, 1)} t/yr`, `peak ${fmt(x.co2_peak_kg_h, 1)} kg/h`],
+      ["Supply", x.max_kg_h ? `${fmt(x.max_kg_h, 0)} kg/h at most` : "as needed", x.fixed_per_year ? `fixed ${money(x.fixed_per_year)}/yr` : "no fixed cost"],
+    ]);
+  }
+  const hp = p.heat_pump;
+  if (hp) {
+    const tt = hp.outside_temp, mwh = (v) => `${fmt(v * 1000, 1)} ${cur()}/MWh`;
+    tiles("pvHeatPump", [
+      ["COP", hp.cop_mode === "constant" ? fmt(hp.cop_nominal, 2) : `${fmt(hp.cop_min, 2)} to ${fmt(hp.cop_max, 2)}`,
+        hp.cop_mode === "constant" ? "constant all year" : `mean ${fmt(hp.cop_mean, 2)} · from the outside temperature, supply at ${fmt(hp.supply_temp_c)} °C`, "accent"],
+      tt && ["Outside temperature", `${fmt(tt.mean, 1)} °C`, `min ${fmt(tt.min, 1)} · max ${fmt(tt.max, 1)} °C`],
+      ["Heat demand", `${fmt(hp.heat_demand_mwh, 0)} MWh/yr`, `peak ${fmt(hp.heat_peak_kw, 0)} kW`],
+      ["Electricity to give all of it", `${fmt(hp.electricity_all_heat_mwh, 0)} MWh/yr`, `${fmt(hp.electricity_heat_peak_kw, 0)} kW at the busiest step`],
+      ["Its heat, energy price", mwh(hp.heat_price_mean), `electricity price ÷ COP · ${fmt(hp.heat_price_min * 1000, 1)} to ${fmt(hp.heat_price_max * 1000, 1)}`],
+      hp.boiler_heat_price_mean != null && ["Boiler heat, running cost", mwh(hp.boiler_heat_price_mean), `gas and levy ÷ efficiency + O&M · the heat pump's is lower ${fmt(hp.cheaper_h, 0)} h a year`],
+      ["Price", `${money(hp.capex_per_kw)}/kW`, `of heat · O&M ${money(hp.fixed_om_per_kw_year, 1)}/kW/yr · life ${fmt(hp.life_yr)} yr`],
+    ]);
+    $("hpPlan").innerHTML = (hp.sized === "fixed"
+      ? `Fixed at <b>${fmt(hp.custom_kw)} kW</b> of heat: it draws at most ${fmt(hp.custom_kw / hp.cop_min, 0)} kW of electricity (at the lowest COP).`
+      : "<b>Sized by the model</b> in the joint sizing, with the other sized blocks, for the lowest yearly cost of the site.") +
+      (hp.import_auto ? ` The grid import limit is automatic: ${fmt(hp.import_max_kw, 0)} kW, twice the highest load with the heat pump giving all the heat.`
+        : ` The grid import limit of the Grid page, ${fmt(hp.import_max_kw, 0)} kW, also limits what it draws.`) +
+      " The prices above are the energy price per kWh only; the run also counts the capacity charges it adds and the PV it can use.";
   }
   const st = p.storage;
   if (st) {
@@ -1265,22 +1365,19 @@ function renderPreview() {
       st.outside_temp && ["Outside temperature", `${fmt(st.outside_temp.mean, 1)} °C`, `min ${fmt(st.outside_temp.min, 1)} · max ${fmt(st.outside_temp.max, 1)} °C`],
       ["Price", `${money(st.capex_per_kwh, 1)}/kWh`, `life ${fmt(st.life_yr)} yr`],
     ]);
-    $("sPlan").innerHTML = `The model will solve <b>${st.sizes.length} sizes</b>: ${st.sizes.map((x) => fmt(x)).join(", ")} kWh of heat ` +
-      `(automatic sizes follow a boiler of about ${fmt(st.boiler_kw_estimate)} kW; the run uses the size the boiler study chooses). Objective: <b>${STORAGE_OBJECTIVE[st.objective]}</b>.`;
+    $("sPlan").innerHTML = plan("thermal_storage", "kWh of heat");
   }
-  const js = p.joint_sizing, jz = js && js.mode === "joint";
-  const jointNote = (block) => (jz && js.plan[block] === null
-    ? " <br><b>Sizing together</b> (System page): the size comes from the joint optimisation, not from this list; the model then runs this block's study at that size." : "");
-  if (b) $("bPlan").innerHTML += jointNote("ng_boiler");
-  if (st) $("sPlan").innerHTML += jointNote("thermal_storage");
   if (!bat) return;
-  const z = p.sizing;
-  $("zPlan").innerHTML = `The battery study solves <b>${z.sizes.length} sizes</b>: ${z.sizes.map((x) => fmt(x)).join(", ")} kWh` +
-    (z.cap ? ` (the list stops at the subsidised maximum, ${fmt(z.cap)} kWh)` : "") +
-    (z.fine_grid_kwh && z.fine_grid_kwh.length ? `, then those of ${z.fine_grid_kwh.map((x) => fmt(x)).join(", ")} kWh that are within ${fmt(z.fine_window_kwh)} kWh of the best size` : "") +
-    `. Objective: <b>${z.objective}</b>${z.objective === "custom" ? ` (${fmt(z.custom_kwh)} kWh)` : ""}.` +
-    (t.has_rule ? ` Sizes whose DUP crosses ${fmt(t.threshold_h)} h are solved twice more.` : "") +
-    (jz && js.plan.battery === null ? `<br><b>Sizing together</b> (System page): the size comes from the joint optimisation (at most ${fmt(js.battery_max_kwh)} kWh), not from this list; the battery study then runs at that size.` : "");
+  const z = p.sizing, js = p.joint_sizing || { plan: {} };
+  $("zPlan").innerHTML = (js.plan.battery === null
+      ? `<b>Sized by the model</b> with the other ticked blocks, for the lowest yearly cost of the site, at most <b>${fmt(js.battery_max_kwh)} kWh</b> (${$("zCap").checked && z.cap ? "the subsidised maximum" : "the largest size of the check's list"}).`
+      : `<b>Fixed</b> at ${fmt(z.custom_kwh)} kWh.`) +
+    (js.battery_check
+      ? `<br>Check: the reference sweep then solves <b>${z.sizes.length} sizes</b>: ${z.sizes.map((x) => fmt(x)).join(", ")} kWh` +
+        (z.cap ? ` (up to the subsidised maximum, ${fmt(z.cap)} kWh)` : "") +
+        (z.fine_grid_kwh && z.fine_grid_kwh.length ? `, then those of ${fmt(z.fine_grid_kwh.length)} fine-grid sizes within ${fmt(z.fine_window_kwh)} kWh of its best` : "") +
+        `, objective <b>${z.objective === "payback" ? "payback" : "lifetime profit"}</b>` + (t.has_rule ? `; sizes whose DUP crosses ${fmt(t.threshold_h)} h are solved twice more.` : ".")
+      : "");
 }
 
 // -- run ------------------------------------------------------------------------------------------------------------
@@ -1291,18 +1388,34 @@ $("runBtn").addEventListener("click", async () => {
   if ($("jsonError").textContent) return toast("Fix the JSON overrides first.", true);
   try {
     const r = await api("/api/run", { case: collectCase(), output_dir: $("rFolder").value.trim() });
-    $("runInfo").textContent = `Results will be written to ${r.output_dir}`;
-    $("runCard").hidden = false; $("runLog").textContent = ""; $("runError").textContent = "";
-    $("runSteps").innerHTML = S.options.run_types[r.run_type].stages.filter((s) => !s.block || (s.block === "joint" ? jointSizing() : s.block === "compare" ? compareOn() : has(s.block))).map((s) =>
-      `<li data-stage="${s.stage}" data-block="${s.block || ""}">${esc(s.label)}${s.counts ? ' <span class="count"></span>' : ""}</li>`).join("");
-    S.logLength = 0; $("runBtn").disabled = true;
-    const t = $("topStatus"); t.dataset.state = "running"; t.className = "top-status running"; t.textContent = `Running ${r.tag}…`;
-    clearInterval(S.polling); S.polling = setInterval(poll, 1000); poll();
+    if (r.error) {   // a run is already going (another tab, or before a refresh): follow it
+      toast(r.error, true);
+      if (r.running && r.running.run_type) followRun(r.running);
+      return;
+    }
+    followRun(r);
   } catch (e) { toast(e.message, true); }
 });
+// shows the run's steps and log, and follows it until it ends. r: the run's info (run_type, tag, output_dir, blocks,
+// joint), from starting it or from the server after a refresh
+function followRun(r) {
+  $("runInfo").textContent = `Results will be written to ${r.output_dir}`;
+  $("runCard").hidden = false; $("runLog").textContent = ""; $("runError").textContent = "";
+  $("runSteps").innerHTML = S.options.run_types[r.run_type].stages.filter((s) => !s.block || r.blocks.includes(s.block) || r[s.block]).map((s) =>
+    `<li data-stage="${s.stage}" data-block="${s.block || ""}">${esc(s.label)}${s.counts ? ' <span class="count"></span>' : ""}</li>`).join("");
+  S.logLength = 0; S.pollFailures = 0; S.running = true; $("runBtn").disabled = true;
+  const t = $("topStatus"); t.dataset.state = "running"; t.className = "top-status running"; t.textContent = `Running ${r.tag}…`;
+  clearInterval(S.polling); S.polling = setInterval(poll, 1000); poll();
+}
 async function poll() {
+  if (S.pollBusy) return;   // the last answer is not in yet: a second request would add the log twice
+  S.pollBusy = true;
   let st;
-  try { st = await api(`/api/status?since=${S.logLength}`); } catch (e) { return; }
+  try { st = await api(`/api/status?since=${S.logLength}`); S.pollFailures = 0; }
+  catch (e) {
+    if (++S.pollFailures === 5) toast("The server does not answer: " + e.message, true);
+    return;
+  } finally { S.pollBusy = false; }
   if (st.log.length) {
     const log = $("runLog");
     log.textContent += st.log.join("");
@@ -1322,7 +1435,7 @@ async function poll() {
     if (count) count.textContent = solved ? `(${solved} solved)` : "";
   });
   if (st.state === "running") return;
-  clearInterval(S.polling); $("runBtn").disabled = !S.runType;
+  clearInterval(S.polling); S.running = false; $("runBtn").disabled = !S.runType;
   const t = $("topStatus"); t.dataset.state = st.state;
   if (st.state === "error") { $("runError").textContent = st.error; updateTop(); return toast("The run failed: " + st.error, true); }
   if (st.state === "done") {
@@ -1356,25 +1469,29 @@ function showResultTab(name) {
 document.querySelectorAll("#resTabs button").forEach((b) => b.addEventListener("click", () => showResultTab(b.dataset.rtab)));
 
 function renderResults() {
-  const R = S.results, bat = !!R.battery, boiler = !!R.boiler, storage = !!R.storage;
+  const R = S.results, bat = !!R.battery, boiler = !!R.boiler, storage = !!R.storage, hp = !!R.heat_pump;
   $("res-battery_study").hidden = !bat;
   document.querySelector('#resTabs [data-rtab="electricity"]').hidden = !R.electricity;
   document.querySelector('#resTabs [data-rtab="system"]').hidden = !R.system;
-  document.querySelectorAll("#resTabs .ct").forEach((b) => (b.hidden = !R.compare));
   document.querySelectorAll("#resTabs .bt").forEach((b) => (b.hidden = !bat));
   document.querySelectorAll("#resTabs .ht").forEach((b) => (b.hidden = !boiler));
   document.querySelectorAll("#resTabs .st").forEach((b) => (b.hidden = !storage));
+  document.querySelectorAll("#resTabs .hpt").forEach((b) => (b.hidden = !hp));
+  document.querySelectorAll("#resTabs .xt").forEach((b) => (b.hidden = !R.co2));
   $("resTabs").hidden = false;
   $("resFiles").textContent = `Written to ${R.files.folder} · model: ${S.options.run_types[R.run_type].name}`;
   $("resSummary").innerHTML = `<tr><th>Field</th><th>Value</th></tr>` + Object.entries(R.summary).filter(([k]) => k !== "sweep")
     .map(([k, v]) => `<tr><td><code>${k}</code></td><td>${esc(typeof v === "number" ? auto(v) : v === null ? "–" : String(v))}</td></tr>`).join("");
   if (R.electricity) renderElectricity();
   if (R.system) renderSystemCost();
-  if (R.compare) renderComparison();
+  Object.keys(EFFECT_TAB).forEach(renderEffect);
   if (bat) renderBatteryStudy();
   if (boiler) renderBoilerStudy();
   if (storage) renderStorageStudy();
+  if (hp) renderHeatPump();
+  if (R.co2) renderCo2();
   if (bat && boiler) $("resLead").textContent += ` · gas boiler ${fmt(R.boiler.summary.boiler_kw)} kW`;
+  if (hp) $("resLead").textContent += ` · heat pump ${fmt(R.heat_pump.summary.heat_pump_kw)} kW`;
   if (storage) $("resLead").textContent += ` · heat storage ${fmt(R.storage.summary.storage_kwh)} kWh`;
   const shownTabs = [...document.querySelectorAll("#resTabs button")].filter((b) => !b.hidden).map((b) => b.dataset.rtab);
   if (!shownTabs.includes(S.rtab)) S.rtab = shownTabs[0];
@@ -1387,7 +1504,7 @@ function renderBatteryStudy() {
   $("resLead").textContent = `${s.site_tag} · ${s.country} ${s.region} ${s.utility} · ${s.pv_modules} Voltiris modules (${s.voltiris_model}) · ancillary services ${R.choice.ancillary_on ? "on" : "off"}`;
   tiles("resTiles", [
     ["Chosen battery", `${fmt(s.battery_kwh)} kWh`, `regime ${s.regime_battery} (${s.regime_no_battery} without battery)`, "accent"],
-    ["Yearly value", m(s.battery_value_yr), "bill saving + ancillary − EMS"],
+    ["Yearly value", m(s.battery_value_yr), s.battery_heat_saving_yr != null ? "bill saving + heat side + ancillary − EMS" : "bill saving + ancillary − EMS"],
     ["Investment", m(s.battery_investment), `battery after subsidy ${m(s.battery_net_capex)} + EMS ${m(s.ems_capex)}`],
     ["Payback", s.battery_payback_yr == null ? "never" : `${fmt(s.battery_payback_yr, 1)} yr`],
     ["Lifetime profit", m(s.battery_lifetime_profit), "value × battery life − investment"],
@@ -1395,12 +1512,25 @@ function renderBatteryStudy() {
   ]);
   renderWhy();
   drawYear();
+  const E = S.results.electricity, BS = E && E.cases.battery && E.cases.battery.battery_savings;
+  $("zSavCard").hidden = !BS;
+  if (BS) {
+    const f = BS.figures, p = BS.parts, stored = -(p["PV stored instead of exported"] + p["Grid energy bought to charge"]);
+    tiles("zSavTiles", [
+      ["Saving on the bill", `${m(p.Total)}/yr`, "the bill without battery − with it", p.Total > 0 ? "good" : "bad"],
+      ["Imports avoided", m(p["Imports avoided"]), `${fmt(f.to_load_mwh, 1)} MWh to the load, ${fmt(f.price_avoided, 3)} ${c}/kWh on average`],
+      ["Cost of the energy stored", m(stored), `${fmt(f.from_pv_mwh, 1)} MWh of PV, ${fmt(f.from_grid_mwh, 1)} MWh bought, ${fmt(f.cost_stored, 3)} ${c}/kWh on average`],
+      ["Capacity charges saved", m(p["Capacity charges saved"]), "lower peaks bought"],
+    ]);
+    drawSavings("zSavChart", "zSavTable", BS, c);
+  }
   // value breakdown
   const parts = [
     ["Self-consumption", s.battery_sc_saving_yr], ["Arbitrage", s.battery_arbitrage_yr],
     ["Capacity charges saved", s.battery_peak_demand_yr], ["Regime switch", s.battery_regime_switch_yr],
     ["Ancillary revenue", s.battery_ancillary_yr], ["EMS costs", -s.battery_ems_yr],
   ];
+  if (s.battery_heat_saving_yr != null) parts.splice(4, 0, ["Heat side (gas, CO2)", s.battery_heat_saving_yr]);
   chart("resValue", { type: "bar", data: { labels: parts.map((p) => p[0]).concat("Yearly value"),
     datasets: [{ data: parts.map((p) => p[1]).concat(s.battery_value_yr),
       backgroundColor: parts.map((p) => (p[1] >= 0 ? COLORS.accent : COLORS.neg)).concat(COLORS.load) }] },
@@ -1412,29 +1542,13 @@ function renderBatteryStudy() {
     ["Capacity charges saved", s.battery_peak_demand_yr],
     ["Regime switch", s.battery_regime_switch_yr],
     ["Peak shaving", s.battery_peak_shaving_yr, "total"],
+    ...(s.battery_heat_saving_yr != null ? [["Heat side: gas and CO2 the heat pump's new timing saves", s.battery_heat_saving_yr]] : []),
     ["Ancillary revenue", s.battery_ancillary_yr],
     ["EMS: fixed cost and fees", -s.battery_ems_yr],
     ["Yearly value", s.battery_value_yr, "total"],
   ];
   $("resValueTable").innerHTML = `<tr><th>Part</th><th>${c}/yr</th></tr>` +
     rows.map(([k, v, cls]) => `<tr${cls ? ` class="${cls}"` : ""}><td class="text">${esc(k)}</td><td>${fmt(v, 0)}</td></tr>`).join("");
-  // sweep
-  const sw = R.sweep, col = (n) => sw.columns.indexOf(n);
-  const sizes = sw.rows.map((r) => r[col("size")]);
-  chart("resSweep", { type: "bar", data: { labels: sizes.map((x) => `${fmt(x)} kWh`), datasets: [
-    { type: "bar", label: `Yearly value, ${c}`, data: sw.rows.map((r) => r[col("bat_value")]),
-      backgroundColor: sizes.map((x) => (x === s.battery_kwh ? COLORS.accent : "#9fd3cd")), yAxisID: "y", order: 2 },
-    { type: "line", label: "Payback, years", data: sw.rows.map((r) => r[col("payback")]), borderColor: COLORS.load,
-      backgroundColor: COLORS.load, pointRadius: 3, yAxisID: "y1", order: 1 },
-    { type: "line", label: `Battery life, ${fmt(R.choice.battery_life_yr)} years (payback limit)`,
-      data: sizes.map(() => R.choice.battery_life_yr), borderColor: COLORS.grey, backgroundColor: COLORS.grey,
-      borderDash: [6, 4], borderWidth: 1.4, pointRadius: 0, yAxisID: "y1", order: 0 }] },
-    options: { scales: { y: { title: { display: true, text: `${c} per year` } },
-      y1: { position: "right", grid: { display: false }, title: { display: true, text: "years" }, beginAtZero: true } } } });
-  renderTable("resSweepTable", sw, { rename: { size: "Size, kWh", bat_value: `Value, ${c}/yr`, investment: `Investment, ${c}`,
-    payback: "Payback, yr", ss: "SS, %", sc: "SC, %", lifetime_profit: `Lifetime profit, ${c}`, ems_fees: `EMS fees, ${c}/yr`,
-    dup: "DUP, h", regime: "Regime", dup_lock: "DUP held in" },
-    highlight: (row) => row[col("size")] === s.battery_kwh, format: (v, j) => (j === col("payback") ? fmt(v, 1) : auto(v)) });
   // with / without
   const cmp = [
     ["Yearly bill", s.bill_no_battery, s.bill_battery, c],
@@ -1456,47 +1570,15 @@ function renderBatteryStudy() {
 }
 function renderWhy() {
   const R = S.results.battery, s = R.summary, ch = R.choice, c = s.currency, life = ch.battery_life_yr;
-  const sw = R.sweep, col = (n) => sw.columns.indexOf(n);
-  const rows = sw.rows.map((r) => ({ size: r[col("size")], value: r[col("bat_value")], inv: r[col("investment")],
-    pb: r[col("payback")], profit: r[col("lifetime_profit")], regime: r[col("regime")], lock: r[col("dup_lock")] }))
-    .sort((a, b) => a.size - b.size);
-  const chosen = rows.find((r) => r.size === s.battery_kwh) || {};
-  const pays = (r) => r.pb != null && r.pb <= life;
-  const paying = rows.filter(pays);
-  const pbText = (r) => (r.pb == null ? "never" : `${fmt(r.pb, 1)} years`);
-  const kwh = (x) => `<b>${fmt(x)} kWh</b>`;
-  let why;
-  if (ch.joint) {
-    why = `<b>Sized together</b> with the other blocks (System tab): ${kwh(chosen.size)}. Against the same system without battery: ` +
-      `${fmt(chosen.value)} ${c}/yr, payback ${pbText(chosen)}, lifetime profit ${fmt(chosen.profit)} ${c} over ${fmt(life)} years.`;
-  } else if (ch.objective === "profit" && paying.length) {
-    const next = paying.filter((r) => r !== chosen).sort((a, b) => b.profit - a.profit)[0];
-    why = `Objective <b>profit</b>. ${paying.length} of the ${rows.length} sizes tested pay back within the battery life of ${fmt(life)} years. ` +
-      `Among them ${kwh(chosen.size)} has the highest lifetime profit: ${fmt(chosen.value)} ${c}/yr &times; ${fmt(life)} years &minus; ${fmt(chosen.inv)} ${c} = <b>${fmt(chosen.profit)} ${c}</b>.` +
-      (next ? ` Next best: ${fmt(next.size)} kWh with ${fmt(next.profit)} ${c}.` : "");
-  } else if (ch.objective === "profit") {
-    why = `Objective <b>profit</b>, but none of the ${rows.length} sizes tested pays back within the battery life of ${fmt(life)} years, ` +
-      (rows.every((r) => r.pb == null) ? `and none pays back at all (yearly value zero or negative), so the first size in the list, ${kwh(chosen.size)}, is kept. Treat it as "no battery is worth it" under these settings.`
-        : `so the size with the shortest payback is kept: ${kwh(chosen.size)}, ${pbText(chosen)}.`);
-  } else if (ch.objective === "payback") {
-    why = `Objective <b>payback</b>: ${kwh(chosen.size)} has the shortest payback of the ${rows.length} sizes tested, ${pbText(chosen)}.`;
-  } else {
-    why = `Objective <b>custom</b>: ${kwh(chosen.size)} is the tested size closest to the size you gave, ${fmt(ch.custom_kwh)} kWh.`;
-  }
+  const pb = s.battery_payback_yr == null ? "never" : `${fmt(s.battery_payback_yr, 1)} years`;
+  const why = (ch.plan != null ? `<b>Fixed in the case</b> at <b>${fmt(s.battery_kwh)} kWh</b>.`
+    : `<b>Sized together</b> with the other blocks (System tab): <b>${fmt(s.battery_kwh)} kWh</b>, for the lowest yearly cost of the site.`) +
+    ` Against the same system without battery: ${fmt(s.battery_value_yr)} ${c}/yr, payback ${pb}, lifetime profit ${fmt(s.battery_lifetime_profit)} ${c} over ${fmt(life)} years.` +
+    (S.results.system && S.results.system.battery_check ? " The check against the reference sweep is on the System tab." : "");
   const notes = [];
-  const largest = rows[rows.length - 1].size, smallest = rows[0].size;
-  if (ch.cap && chosen.size === ch.cap) notes.push(`The list stopped at ${fmt(ch.cap)} kWh, the largest subsidised size (OCAN rule), and that is the size chosen.`);
-  else if (ch.objective !== "custom" && chosen.size === largest && rows.length > 1) notes.push(`The chosen size is the largest one tested: a larger battery might do better. Extend the list on the Battery page to check.`);
-  else if (ch.objective !== "custom" && chosen.size === smallest && rows.length > 1 && chosen.value > 0) notes.push(`The chosen size is the smallest one tested: a smaller battery might do better. Extend the list on the Battery page to check.`);
-  const fine = rows.filter((r) => !ch.first_stage.includes(r.size)).map((r) => fmt(r.size));
-  if (fine.length) notes.push(`${fine.join(", ")} kWh came from the fine grid, solved after the first list.`);
-  if (chosen.regime !== s.regime_no_battery) notes.push(`This size is billed under regime ${chosen.regime}, not the starting regime ${s.regime_no_battery}: its hours of use crossed the threshold${chosen.lock ? `, and the DUP was held in regime ${chosen.lock}` : ""}.`);
+  if (s.battery_heat_saving_yr != null) notes.push(`With the heat pump the battery also changes when it runs: ${fmt(s.battery_heat_saving_yr)} ${c}/yr of gas and CO2 bought are saved (negative: spent), and that is in its value.`);
+  if (s.regime_battery !== s.regime_no_battery) notes.push(`It is billed under regime ${s.regime_battery}, not ${s.regime_no_battery} as without battery: its hours of use crossed the threshold.`);
   $("resWhy").innerHTML = why + (notes.length ? "<br>" + notes.join(" ") : "");
-  $("resWhyTable").innerHTML = `<tr><th>Size, kWh</th><th>Yearly value, ${c}</th><th>Investment, ${c}</th><th>Payback</th><th>Within ${fmt(life)} yr</th><th>Lifetime profit, ${c}</th><th>Regime</th><th></th></tr>` +
-    rows.map((r) => `<tr${r === chosen ? ' class="hl"' : ""}><td>${fmt(r.size)}</td><td>${fmt(r.value)}</td><td>${fmt(r.inv)}</td>
-      <td>${pbText(r)}</td><td class="${pays(r) ? "yes" : "no"}">${pays(r) ? "yes" : "no"}</td><td>${fmt(r.profit)}</td>
-      <td>${esc(r.regime)}${r.lock ? ` (DUP held in ${esc(r.lock)})` : ""}</td><td>${r === chosen ? '<span class="tag">chosen</span>' : ""}</td></tr>`).join("");
-  $("resWhyNote").textContent = `Payback and lifetime profit use the battery life of ${fmt(life)} years (Commercial page, Lifetimes). Yearly value = bill saving + ancillary revenue − EMS costs; investment = battery after subsidy + EMS hardware.`;
 }
 
 function drawYear() {
@@ -1543,46 +1625,77 @@ function drawDispatch() {
 }
 $("resWeek").addEventListener("input", drawDispatch);
 
-// the site's yearly cost, for every run, and with the joint sizing each block's value in the system
-const BLOCK_NAME = { ng_boiler: "Gas boiler", thermal_storage: "Heat storage", battery: "Battery" };
-const BLOCK_UNIT = { ng_boiler: "kW", thermal_storage: "kWh", battery: "kWh" };
+// the System tab: technical first, then the money, then how much the sizes matter
+const BLOCK_NAME = { ng_boiler: "Gas boiler", heat_pump: "Heat pump", thermal_storage: "Heat storage", battery: "Battery" };
+const BLOCK_UNIT = { ng_boiler: "kW", heat_pump: "kW", thermal_storage: "kWh", battery: "kWh" };
+// a size the case fixes (sizing "custom"), not sized by the run
+const fixedInCase = (b) => { const J = (S.results.system || {}).joint; return !!J && J.plan[b] !== null && J.plan[b] !== undefined; };
+// rows of a table sent as {columns, rows}, as objects
+const records = (t) => t.rows.map((r) => Object.fromEntries(t.columns.map((c, i) => [c, r[i]])));
+const signed = (v, d = 0) => (v == null ? "–" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v), d)}`);
 function renderSystemCost() {
-  const Y = S.results.system, c = Y.costs, J = Y.joint;
+  const Y = S.results.system, c = Y.costs, J = Y.joint, T = Y.technical;
   const cu = (S.results.summary && S.results.summary.currency) || (S.results.electricity && Object.values(S.results.electricity.cases)[0].kpi.currency) || "";
   const m = (v) => `${fmt(v, 0)} ${cu}`;
   $("yCur").textContent = `${cu} per year`;
-  const sizes = Object.entries(c.sizes || {});
+  const sizes = Object.entries(J ? J.sizes : c.sizes || {});
   tiles("yTiles", [
-    ["Yearly cost of the site", m(c.total), `running ${m(c.running_total)} + investments ${m(c.investment_total)}`, "accent"],
-    ["Running per year", m(c.running_total), "grid, gas, levy, O&M, EMS, less revenues"],
-    ["Investment per year", m(c.investment_total), "each investment ÷ its life"],
-    ...sizes.map(([b, v]) => [BLOCK_NAME[b], `${fmt(v)} ${BLOCK_UNIT[b]}`,
-      J ? (J.plan[b] !== null && J.plan[b] !== undefined ? "size fixed (custom)" : J.value[b] !== undefined ? `sized together · worth ${m(J.value[b])}/yr` : "sized together")
-        : "sized by its own study"]),
+    ...sizes.map(([b, v]) => [BLOCK_NAME[b], `${fmt(v)} ${BLOCK_UNIT[b]}`, fixedInCase(b) ? "fixed in the case" : v ? "sized together" : "sized together: not worth installing", "accent"]),
+    ["Yearly cost of the site", m(c.total), `running ${m(c.running_total)} + investments ${m(c.investment_total)}`],
   ]);
-  const notes = [];
-  if (Y.mode === "joint") {
-    notes.push(`<b>Sized together</b>: ${Object.keys(J.plan).filter((b) => J.plan[b] === null).map((b) => BLOCK_NAME[b].toLowerCase()).join(", ")} optimised in one go for the lowest yearly cost of the site (${m(J.total)} in the optimisation; ${m(c.total)} when the year is solved again at the sizes found${(c.sizes || {}).battery ? ", with the battery's EMS costs" : ""}).`);
-    Object.entries(J.without).forEach(([b, w]) => {
-      const others = Object.entries(w.sizes).map(([k, v]) => `${BLOCK_NAME[k].toLowerCase()} ${fmt(v)} ${BLOCK_UNIT[k]}`).join(", ");
-      notes.push(`Without the ${BLOCK_NAME[b].toLowerCase()}, the best system is ${others || "the rest as it is"} at ${m(w.total)} a year.`);
-    });
-    (J.notes || []).forEach((n) => notes.push(n));
-  } else {
-    notes.push(SIZED.some((b) => (c.sizes || {})[b]) ? "Each block was sized by its own study, the others fixed (one at a time, in the order boiler, heat storage, battery)." : "No block to size: the system as it is.");
-  }
+  const free = J ? Object.keys(J.plan).filter((b) => J.plan[b] === null) : [];
+  const notes = [free.length
+    ? `<b>Sized together</b>: ${free.map((b) => lc(BLOCK_NAME[b])).join(", ")}, in one optimisation whose objective is the site's yearly cost (running costs + each investment spread over its life). The optimisation chooses the sizes and how everything runs at each quarter hour; the money is then counted from that year.`
+    : "Nothing to size: the system as it is, optimised over the year."];
+  (J && J.notes || []).forEach((n) => notes.push(n));
   $("yWhy").innerHTML = notes.join("<br>");
-  $("yJointCard").hidden = !J;
-  if (J) {
-    $("yJoint").innerHTML = `<tr><th>Block</th><th>Size</th><th>Sized</th><th>Best system without it</th><th>Site's yearly cost without it, ${cu}</th><th>Value in the system, ${cu}/yr</th></tr>` +
-      Object.entries(J.sizes).map(([b, v]) => {
-        const w = J.without[b];
-        const others = w ? Object.entries(w.sizes).map(([k, x]) => `${BLOCK_NAME[k].toLowerCase()} ${fmt(x)} ${BLOCK_UNIT[k]}`).join(", ") : "";
-        return `<tr><td class="text"><b>${BLOCK_NAME[b]}</b></td><td>${fmt(v)} ${BLOCK_UNIT[b]}</td><td class="text">${J.plan[b] === null ? "together" : "fixed"}</td>
-          <td class="text">${w ? esc(others) : "not left out: the only heat source"}</td><td>${w ? fmt(w.total, 0) : "–"}</td>
-          <td class="${w ? (J.value[b] > 0 ? "yes" : "no") : ""}">${w ? fmt(J.value[b], 0) : "–"}</td></tr>`;
-      }).join("");
+
+  // technical: each piece of equipment at its size
+  if (T) {
+    const cell = (r) => {
+      const size = r.size == null ? "–" : r.block === "voltiris" ? `${fmt(r.size)} modules · ${fmt(r.kwp, 0)} kWp`
+        : `${fmt(r.size)} ${r.unit}` + (r.power_kw ? ` · ${fmt(r.power_kw, 0)} kW` : "") + (r.usable_kwh ? ` · ${fmt(r.usable_kwh, 0)} kWh usable` : "");
+      const use = r.full_load_h != null ? `${fmt(r.full_load_h)} h at full load` : r.cycles != null ? `${fmt(r.cycles)} full cycles` : "–";
+      const extra = r.spf != null ? ` · SPF ${fmt(r.spf, 2)}` : "";
+      return `<tr><td class="text"><b>${esc(r.name)}</b></td><td>${size}</td><td class="text">${esc(r.how)}</td>
+        <td>${r.unit_cost_yr != null ? `${fmt(r.unit_cost_yr, 1)} ${esc(cu)} <span class="muted">${esc(r.unit_cost)}</span>` : "–"}</td>
+        <td>${r.output_mwh != null ? `${fmt(r.output_mwh, r.output_mwh < 100 ? 1 : 0)} <span class="muted">${r.block === "external_co2" ? "" : "MWh "}${esc(r.output)}</span>` : "–"}</td>
+        <td>${r.share_pct != null ? `${fmt(r.share_pct, 1)} % <span class="muted">${esc(r.share)}</span>` : "–"}</td>
+        <td>${use}${extra}</td><td>${r.at_full_h != null ? `${fmt(r.at_full_h)} h <span class="muted">${esc(r.at_full || "at full output")}</span>` : "–"}</td></tr>`;
+    };
+    $("yEquip").innerHTML = `<tr><th>Equipment</th><th>Size</th><th>How</th><th>One more unit costs</th><th>Gives over the year</th><th>Share</th><th>Use</th><th>At full size</th></tr>` +
+      T.equipment.map(cell).join("");
+    $("yEnergy").innerHTML = `<tr><th></th><th>Over the year</th><th></th></tr>` + T.energy.map((r, i) =>
+      (i === 0 || T.energy[i - 1].carrier !== r.carrier ? `<tr class="total"><td class="text" colspan="3">${esc(r.carrier)}</td></tr>` : "") +
+      `<tr${r.item === "Unmet" && r.value > 0.05 ? ' class="hl"' : ""}><td class="text">${esc(r.item)}</td><td>${fmt(r.value, r.unit === "%" || r.value < 100 ? 1 : 0)}</td><td class="text">${esc(r.unit)}</td></tr>`).join("");
   }
+  $("yTechCard").hidden = $("yEnergyCard").hidden = !T;
+
+  // what each technology changes: technical, then the money
+  const FX = S.results.effects || {}, done = Object.entries(FX).filter(([, e]) => e.evaluated);
+  const TECH = [["Grid import (MWh)", "Grid import", "MWh", 0], ["Self-sufficiency (%)", "Self-sufficiency", "points", 1],
+    ["Gas (MWh)", "Gas", "MWh", 0], ["CO2 emitted (t)", "CO2 emitted", "t", 1], ["Heat unmet (MWh)", "Heat unmet", "MWh", 1], ["CO2 unmet (t)", "CO2 unmet", "t", 1]]
+    .filter(([k]) => done.some(([, e]) => Math.abs(effectFigure(e, k) || 0) > 0.05));
+  $("yImpactCard").hidden = !done.length;
+  $("yImpact").innerHTML = `<tr><th>Technology</th>${TECH.map(([, n, u]) => `<th>${n}, ${u}</th>`).join("")}</tr>` +
+    done.map(([x, e]) => `<tr><td class="text"><b>${esc(e.name)}</b></td>${TECH.map(([k, , , d]) => {
+      const v = effectFigure(e, k), better = { "Self-sufficiency (%)": v > 0 }[k] ?? v < 0;
+      return `<td class="${Math.abs(v || 0) <= 0.05 ? "" : better ? "better" : "worse"}">${Math.abs(v || 0) <= 0.05 ? "–" : signed(v, d)}</td>`;
+    }).join("")}</tr>`).join("");
+  $("yEffectsCard").hidden = !Object.keys(FX).length;
+  $("yEffects").innerHTML = `<tr><th>Technology</th><th>Yearly cost of the site</th><th>Extra investment</th><th>Running cost</th><th>Payback</th><th></th></tr>` +
+    Object.entries(FX).map(([x, e]) => {
+      if (!e.evaluated) return `<tr><td class="text"><b>${esc(e.name)}</b></td><td class="text" colspan="4">not evaluated: ${esc(e.reason)}</td><td><button data-fx="${x}">Open</button></td></tr>`;
+      return `<tr><td class="text"><b>${esc(e.name)}</b></td>
+        <td class="${e.difference > 0.5 ? "better" : e.difference < -0.5 ? "worse" : ""}">${e.difference > 0.5 ? "−" : e.difference < -0.5 ? "+" : ""}${fmt(Math.abs(e.difference), 0)} ${esc(cu)}/yr</td>
+        <td>${fmt(e.extra_investment, 0)}</td><td class="${e.running_saving > 0.5 ? "better" : e.running_saving < -0.5 ? "worse" : ""}">${e.running_saving > 0.5 ? "−" : e.running_saving < -0.5 ? "+" : ""}${fmt(Math.abs(e.running_saving), 0)}/yr</td>
+        <td>${e.payback_yr == null ? "–" : `${fmt(e.payback_yr, 1)} yr`}</td><td><button data-fx="${x}">Details</button></td></tr>`;
+    }).join("");
+  $("yEffects").querySelectorAll("[data-fx]").forEach((btn) => btn.addEventListener("click", () => {
+    showResultTab(EFFECT_TAB[btn.dataset.fx]);
+    const box = $("fx-" + btn.dataset.fx); if (box) box.scrollIntoView({ behavior: "smooth" });
+  }));
+  // the yearly cost
   const items = [...Object.entries(c.running).map(([k, v]) => [k, v, "run"]), ...Object.entries(c.investment).map(([k, v]) => [k, v, "inv"])]
     .filter(([, v]) => Math.abs(v) > 0.5);
   chart("yChart", { type: "bar", data: { labels: items.map((i) => i[0]), datasets: [{ data: items.map((i) => i[1]),
@@ -1591,43 +1704,206 @@ function renderSystemCost() {
   const row = (k, v, cls = "") => `<tr${cls ? ` class="${cls}"` : ""}><td class="text">${esc(k)}</td><td>${fmt(v, 0)}</td></tr>`;
   $("yTable").innerHTML = `<tr><th>Running</th><th>${cu}/yr</th></tr>` + Object.entries(c.running).map(([k, v]) => row(k, v)).join("") +
     row("Total running", c.running_total, "total") +
-    `<tr><th>Investment per year</th><th></th></tr>` + Object.entries(c.investment).map(([k, v]) => row(`${k} (${fmt(c.invested[k], 0)} over its life)`, v)).join("") +
+    `<tr><th>Investment per year</th><th></th></tr>` + Object.entries(c.investment).map(([k, v]) => row(`${k} (${fmt(c.invested[k], 0)} invested)`, v)).join("") +
     row("Total investment per year", c.investment_total, "total") + row("Yearly cost of the site", c.total, "total") +
     `<tr><th>Quantities</th><th></th></tr>` + Object.entries(c.other).map(([k, v]) => `<tr><td class="text">${esc(k)}</td><td>${fmt(v, 1)}</td></tr>`).join("");
+
+  // how much the sizes matter
+  const SE = Y.sensitivity;
+  $("ySensCard").hidden = !SE;
+  if (SE) {
+    const R = records(SE.table), cols = [["Grid import (MWh)", "Grid import, MWh", 0], ["Self-sufficiency (%)", "Self-sufficiency, %", 1],
+      ["Gas (MWh)", "Gas, MWh", 0], ["CO2 emitted (t)", "CO2 emitted, t", 1], ["Heat unmet (MWh)", "Heat unmet, MWh", 1], ["CO2 unmet (t)", "CO2 unmet, t", 1]]
+      .filter(([k]) => R.some((r) => r[k] != null));
+    const unmet = (r) => (r["Heat unmet (MWh)"] || 0) > 0.05 || (r["CO2 unmet (t)"] || 0) > 0.05;
+    $("ySens").innerHTML = `<tr><th>Equipment</th><th>Change</th><th>Size</th><th>Yearly cost, ${esc(cu)}</th><th>Against the chosen sizes</th>${cols.map(([, n]) => `<th>${n}</th>`).join("")}</tr>` +
+      R.map((r) => `<tr${r.block == null ? ' class="total"' : unmet(r) ? ' class="hl"' : ""}><td class="text">${esc(r.equipment)}</td>
+        <td>${r.block == null ? "–" : signed(r.change_pct) + " %"}</td><td>${r.size == null ? "–" : `${fmt(r.size)} ${esc(r.unit)}`}</td>
+        ${r.solved ? `<td>${fmt(r.yearly_cost)}</td><td class="${r.block == null ? "" : r.yearly_cost_change > 0.5 ? "worse" : r.yearly_cost_change < -0.5 ? "better" : ""}">${r.block == null ? "–" : signed(r.yearly_cost_change)}</td>
+        ${cols.map(([k, , d]) => `<td>${fmt(r[k], d)}</td>`).join("")}` : `<td class="text" colspan="${2 + cols.length}">not solved</td>`}</tr>`).join("");
+    $("ySensHint").textContent = `Each row solves the year again with one size changed by ${fmt(SE.step_pct)} %, everything else at the chosen sizes (no new sizing; regime ${SE.regime}). ` +
+      "A higher yearly cost both ways means the chosen size sits at the optimum; a small difference means the optimum is flat there. " +
+      "Unmet heat or CO2 (shaded rows) is not priced in the yearly cost: a smaller size that leaves demand unmet looks cheaper but does not do the job." +
+      (J && J.sizes.battery && J.battery_max_kwh && J.sizes.battery >= J.battery_max_kwh - 0.5
+        ? ` The battery sits at its upper limit, ${fmt(J.battery_max_kwh)} kWh (the subsidised maximum or the largest size of the check's list): a larger one may be cheaper, as +10 % shows when it lowers the yearly cost.` : "");
+  }
+  // battery check: joint sizing against the reference sweep
+  const BC = Y.battery_check;
+  $("yCheckCard").hidden = !BC;
+  if (BC) {
+    const a = BC.joint, b = BC.sweep, rows = [
+      ["Size, kWh", a.size, b.size, 0], ["Yearly value, " + cu, a.value_yr, b.value_yr, 0],
+      ["First purchase after subsidy, with EMS hardware, " + cu, a.investment, b.investment, 0],
+      ["Payback, years", a.payback_yr, b.payback_yr, 1],
+      [`Lifetime profit over ${fmt(BC.battery_life_yr)} years (the sweep's objective), ${cu}`, a.lifetime_profit, b.lifetime_profit, 0],
+      [`Battery per year over the PV life (${fmt(BC.pv_life_yr)} years), ${cu}`, a.battery_per_year, b.battery_per_year, 0],
+      ["Yearly cost of the site (the joint sizing's objective), " + cu, a.site_yearly_cost, b.site_yearly_cost, 0],
+    ];
+    $("yCheck").innerHTML = `<tr><th></th><th>Joint sizing</th><th>Reference sweep</th><th>Difference</th></tr>` +
+      rows.map(([k, x, y, d]) => `<tr${k.startsWith("Size") ? ' class="hl"' : ""}><td class="text">${esc(k)}</td><td>${fmt(x, d)}</td><td>${fmt(y, d)}</td><td>${x != null && y != null ? signed(y - x, d) : "–"}</td></tr>`).join("");
+    $("yCheckHint").innerHTML = (BC.same ? "<b>Same size.</b> " : "<b>The sizes differ.</b> ") +
+      `The joint sizing keeps the lowest yearly cost of the site, any size up to its limit, with the battery and its replacements spread over the PV life. ` +
+      `The reference sweep (Jesse's model) keeps the ${BC.objective === "payback" ? "shortest payback" : "highest lifetime profit"} among the sizes of its list, first purchase only, over the battery life. ` +
+      "Both use the same year and the same bill; with the other blocks at their joint sizes. Different rules can pick different sizes even when both are right. The tick on the Run page skips this check.";
+    renderTable("yCheckSweep", BC.table, { rename: { size: "Size, kWh", bat_value: `Value, ${cu}/yr`, investment: `Investment, ${cu}`,
+      payback: "Payback, yr", ss: "SS, %", sc: "SC, %", lifetime_profit: `Lifetime profit, ${cu}`, ems_fees: `EMS fees, ${cu}/yr`,
+      dup: "DUP, h", regime: "Regime", dup_lock: "DUP held in" }, highlight: (r) => r[BC.table.columns.indexOf("size")] === b.size });
+  }
 }
 
-// scenario A against scenario B
-function renderComparison() {
-  const C = S.results.compare, cu = $("yCur").textContent.replace(" per year", "") || "";
+// where the CO2 comes from: the boiler's flue gas or bought
+function renderCo2() {
+  const X = S.results.co2, s = X.summary, cu = $("yCur").textContent.replace(" per year", "") || "";
   const m = (v) => `${fmt(v, 0)} ${cu}`;
-  $("cCur").textContent = `${cu} per year`;
-  const cheaper = C.difference > 0 ? "A" : "B";
-  tiles("cTiles", [
-    ["A: as built", m(C.total_a), "yearly cost of the site", cheaper === "A" ? "accent" : ""],
-    [C.names.b, m(C.total_b), "yearly cost of the site", cheaper === "B" ? "accent" : ""],
-    ["B − A", m(C.difference), C.difference > 0 ? `A is ${m(C.difference)} cheaper per year` : `B is ${m(-C.difference)} cheaper per year`],
-    ["A invests more", m(C.extra_investment), `${m(C.invested_a)} against ${m(C.invested_b)}`],
-    ["A's running saving", `${m(C.running_saving)}/yr`, "B's running cost − A's"],
-    ["Payback of A's extra investment", C.payback_yr == null ? "–" : `${fmt(C.payback_yr, 1)} yr`, "extra investment ÷ running saving"],
+  const share = s.co2_demand_t > 0 ? (s.bought_t / s.co2_demand_t) * 100 : 0;
+  tiles("xTiles", [
+    ["CO2 demand", `${fmt(s.co2_demand_t, 1)} t`, s.unmet_t > 0.05 ? `${fmt(s.unmet_t, 1)} t unmet` : "all met", "accent"],
+    ["From the boiler's flue gas", `${fmt(s.from_flue_gas_t, 1)} t`, s.has_boiler ? `${fmt(100 - share, 0)} % of the demand` : "no boiler"],
+    ["Bought", `${fmt(s.bought_t, 1)} t`, `${fmt(share, 0)} % of the demand`],
+    ["Cost of CO2 bought", m(s.bought_cost), s.price_paid != null ? `${fmt(s.price_paid, 3)} ${cu}/kg paid on average` : "nothing bought"],
+    s.gas_equivalent_mean != null && ["Gas burnt for CO2", `${fmt(s.gas_equivalent_mean, 3)} ${cu}/kg`, `on average, against ${fmt(s.price_mean, 3)} for bought CO2`],
   ]);
-  const left = [...C.without, ...C.also].map((x) => blockInfo(x).name.toLowerCase());
-  $("cWhy").innerHTML = `Scenario B is the same system without ${esc(left.join(", "))}` +
-    (C.also.length ? ` (${esc(C.also.map((x) => `${blockInfo(x).name.toLowerCase()}: ${linkReason(x)}`).join("; "))})` : "") +
-    `, sized the same way (${C.b_mode === "joint" ? "together" : "one at a time"}). ` +
-    (C.difference > 0 ? `With these blocks the site costs <b>${m(C.difference)} less per year</b>, investments spread over their lives included.`
-      : `Without these blocks the site costs <b>${m(-C.difference)} less per year</b>: they do not pay for themselves here.`) +
-    (C.payback_yr != null ? ` A invests ${m(C.extra_investment)} more and saves ${m(C.running_saving)} a year in running costs: it pays back in ${fmt(C.payback_yr, 1)} years.` : "");
-  const T = C.costs, col = (n) => T.columns.indexOf(n);
-  const lines = T.rows.filter((r) => !String(r[col("Item")]).startsWith("Total") && r[col("Part")] !== "Total" && (Math.abs(r[col("A")]) > 0.5 || Math.abs(r[col("B")]) > 0.5));
-  chart("cChart", { type: "bar", data: { labels: lines.map((r) => r[col("Item")]), datasets: [
-    { label: "A", data: lines.map((r) => r[col("A")]), backgroundColor: COLORS.accent },
-    { label: "B", data: lines.map((r) => r[col("B")]), backgroundColor: "#cbd5e1" },
-  ] }, options: { indexAxis: "y", scales: { x: { title: { display: true, text: `${cu} per year` } } } } });
-  $("cTable").innerHTML = `<tr><th>Item</th><th>A</th><th>B</th><th>B − A</th></tr>` + T.rows.map((r) => {
-    const total = String(r[col("Item")]).startsWith("Total") || r[col("Part")] === "Total";
-    return `<tr${total ? ' class="total"' : ""}><td class="text">${esc(r[col("Item")])}</td><td>${fmt(r[col("A")], 0)}</td><td>${fmt(r[col("B")], 0)}</td><td>${fmt(r[col("B - A")], 0)}</td></tr>`;
+  $("xWhy").innerHTML = !s.has_boiler ? "No boiler: all the CO2 is bought."
+    : `At every quarter hour the optimisation buys CO2 or burns gas for it, whichever costs less. When the greenhouse needs heat, the boiler runs anyway and its flue gas CO2 comes free. ` +
+      `When it does not, burning gas only for CO2 costs about ${fmt(s.gas_equivalent_mean, 3)} ${cu} per kg (gas, carbon levy, boiler O&M), so CO2 is bought when its price is lower. ` +
+      (s.bought_t > 0.05 ? `Here ${fmt(s.bought_t, 1)} t is bought, ${fmt(share, 0)} % of the demand.` : "Here buying never pays: burning gas is always cheaper or its heat is needed.");
+  const M = X.monthly, col = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]);
+  const hasGas = M.columns.includes("Gas as CO2, per kg");
+  $("xSavCard").hidden = s.saving == null;
+  if (s.saving != null) {
+    tiles("xSavTiles", [
+      ["Saving from buying CO2", m(s.saving), "against burning gas only for it", s.saving > 0 ? "good" : ""],
+      ["CO2 bought", `${fmt(s.bought_t, 1)} t`, `paid ${m(s.bought_cost)}`],
+      ["Burning gas for it instead", m(s.alternative_cost), "gas, carbon levy and boiler O&M; its heat not needed"],
+    ]);
+    chart("xSavChart", { type: "bar", data: { labels: M.index, datasets: [
+      { type: "bar", label: `Paid for CO2 bought, ${cu}`, data: col("Cost of CO2 bought"), backgroundColor: COLORS.co2, order: 2 },
+      { type: "bar", label: `Burning gas for it instead, ${cu}`, data: col("Burning gas instead"), backgroundColor: "#fdba74", order: 2 },
+      { type: "line", label: `Saving, ${cu}`, data: col("Saving"), borderColor: COLORS.exp, backgroundColor: COLORS.exp, pointRadius: 3, order: 1 },
+    ] }, options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: `${cu} per month` } } } } });
+  }
+  chart("xMonthly", { type: "bar", data: { labels: M.index, datasets: [
+    { type: "bar", label: "From flue gas, t", data: col("From flue gas (t)"), backgroundColor: COLORS.heat, stack: "s", yAxisID: "y", order: 2 },
+    { type: "bar", label: "Bought, t", data: col("Bought (t)"), backgroundColor: COLORS.co2, stack: "s", yAxisID: "y", order: 2 },
+    { type: "line", label: `CO2 price, ${cu}/kg`, data: col("CO2 price, per kg"), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 2, yAxisID: "y1", order: 1 },
+    hasGas && { type: "line", label: `Gas burnt for CO2, ${cu}/kg`, data: col("Gas as CO2, per kg"), borderColor: COLORS.gas, backgroundColor: COLORS.gas, borderDash: [4, 3], pointRadius: 2, yAxisID: "y1", order: 1 },
+  ].filter(Boolean) }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "t of CO2" } },
+    y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: `${cu} per kg` } } } } });
+  const d = X.daily, n = d.co2_demand.length, t0 = new Date(d.start + "Z").getTime();
+  const labels = Array.from({ length: n }, (_, i) => new Date(t0 + i * 864e5).toISOString().slice(0, 10));
+  chart("xDaily", { type: "bar", data: { labels, datasets: [
+    { type: "bar", label: "From flue gas, t", data: d.from_flue_gas, backgroundColor: COLORS.heat, stack: "s", order: 2, barPercentage: 1, categoryPercentage: 1 },
+    { type: "bar", label: "Bought, t", data: d.bought, backgroundColor: COLORS.co2, stack: "s", order: 2, barPercentage: 1, categoryPercentage: 1 },
+  ] }, options: { scales: { x: { stacked: true, ticks: monthTicks, grid: { display: false } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "t per day" } } } } });
+  renderTable("xTable", M, { indexLabel: "Month", format: (v) => (typeof v === "number" ? fmt(v, Math.abs(v) < 1 ? 3 : 1) : v) });
+}
+
+// savings against the other way of supplying a flow: one part per line, per month, with the total
+const SAVING_COLOR = { "Imports avoided": COLORS.imp, "Export revenue": COLORS.exp, "Capacity charges saved": "#93c5fd",
+  "EaaS fee": COLORS.pv, "Battery exports": "#5eead4", "PV stored instead of exported": COLORS.pv,
+  "Grid energy bought to charge": COLORS.neg, "Other (regime, EaaS fee)": COLORS.grey };
+function drawSavings(chartId, tableId, data, cu) {
+  const M = data.monthly, col = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]);
+  const parts = M.columns.filter((c) => c !== "Total" && col(c).some((v) => Math.abs(v) > 0.5));
+  chart(chartId, { type: "bar", data: { labels: M.index, datasets: [
+    ...parts.map((p) => ({ type: "bar", label: p, data: col(p), backgroundColor: SAVING_COLOR[p] || COLORS.grey, stack: "s", order: 2 })),
+    { type: "line", label: "Saving", data: col("Total"), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 2, borderWidth: 2, stack: "t", order: 1 },
+  ] }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, title: { display: true, text: `${cu} per month` } } } } });
+  $(tableId).innerHTML = `<tr><th>Part</th><th>${esc(cu)}/yr</th></tr>` + Object.entries(data.parts)
+    .filter(([k, v]) => k !== "Total" && Math.abs(v) >= 0.5)
+    .map(([k, v]) => `<tr><td class="text">${esc(k)}</td><td class="${v >= 0 ? "better" : "worse"}">${fmt(v, 0)}</td></tr>`).join("") +
+    `<tr class="total"><td class="text">Saving on the bill</td><td>${fmt(data.parts.Total, 0)}</td></tr>`;
+}
+
+// with and without each technology, in its own tab
+const EFFECT_TAB = { voltiris: "electricity", existing_pv: "electricity", battery: "overview", ng_boiler: "boiler", heat_pump: "heat_pump",
+  thermal_storage: "storage", external_co2: "co2" };
+function effectFigure(e, name) {
+  const F = e.figures, fc = (n) => F.columns.indexOf(n);
+  const r = F.rows.find((row) => row[fc("Figure")] === name);
+  return r ? (r[fc("With")] || 0) - (r[fc("Without")] || 0) : null;
+}
+function renderEffect(x) {
+  const box = $("fx-" + x); if (!box) return;
+  const e = (S.results.effects || {})[x];
+  if (!e) { box.innerHTML = ""; return; }
+  const tech = /^Voltiris/.test(e.name) ? e.name : "the " + lc(e.name);   // "Voltiris lowers", "the heat storage lowers"
+  if (!e.evaluated) {
+    box.innerHTML = `<div class="card"><h2>With and without ${esc(tech)}</h2><p class="hint">Not evaluated: ${esc(e.reason)}.</p></div>`;
+    return;
+  }
+  const cu = $("yCur").textContent.replace(" per year", "") || "";
+  const m = (v) => `${fmt(v, 0)} ${cu}`;
+  const sign = (v, d = 0) => `${v > 0 ? "+" : "−"}${fmt(Math.abs(v), d)}`;
+  const worth = e.difference > 0.5, none = Math.abs(e.difference) <= 0.5;
+  const also = (e.also || []).map((b) => lc(blockInfo(b).name));
+  const J = (S.results.system || {}).joint, sizedOut = J && J.sizes && J.sizes[x] === 0;   // the joint sizing gave it no size
+  box.innerHTML = `<div class="card">
+      <h2>With and without ${esc(tech)} <span class="muted">${e.mode === "joint" ? "the rest sized again together without it" : "the rest at its sizes"}</span></h2>
+      <div class="verdict ${none ? "" : worth ? "good" : "bad"}">
+        <h2>${none ? `No effect: ${esc(tech)} does not change the site's yearly cost` : `${worth ? "Worth it" : "Not worth it"}: ${esc(tech)} ${worth ? "lowers" : "raises"} the site's yearly cost by ${esc(m(Math.abs(e.difference)))}`}</h2>
+        <p>${sizedOut ? "The joint sizing gives it no size: under these prices it is not worth installing, so the site is the same without it. " : ""}${esc(m(e.total_with))} a year with it, ${esc(m(e.total_without))} without it, investments spread over their lives included${also.length ? `; without it, the ${esc(also.join(" and "))} cannot run either` : ""}.</p>
+      </div>
+      <div class="tiles" data-r="tiles"></div>
+      <div class="two">
+        <div><h3 class="pros">Advantages</h3><ul class="effects effects-pros" data-r="pros"></ul></div>
+        <div><h3 class="cons">Disadvantages</h3><ul class="effects effects-cons" data-r="cons"></ul></div>
+      </div>
+      <h3>From the site without it to the site with it</h3>
+      <div class="chart tall"><canvas id="fx-${x}-chart"></canvas></div>
+      <details><summary>Line by line, sizes and key figures</summary>
+        <div class="table-wrap"><table class="grid" data-r="table"></table></div>
+        <div class="table-wrap"><table class="grid" data-r="figures"></table></div>
+      </details>
+    </div>`;
+  const q = (r) => box.querySelector(`[data-r="${r}"]`);
+  const T = e.costs, tc = (n) => T.columns.indexOf(n);
+  const lines = T.rows.filter((r) => r[tc("Part")] !== "Total" && !String(r[tc("Item")]).startsWith("Total"))
+    .map((r) => ({ item: r[tc("Item")], part: r[tc("Part")], effect: r[tc("Effect")] })).filter((l) => Math.abs(l.effect) >= 0.5);
+  const F = e.figures, fc = (n) => F.columns.indexOf(n);
+  const figures = F.rows.map((r) => ({ name: r[fc("Figure")], with_: r[fc("With")], without: r[fc("Without")], effect: (r[fc("With")] || 0) - (r[fc("Without")] || 0), better: r[fc("Better")] }));
+  const good = (f) => (f.better === "lower" ? f.effect < 0 : f.better === "higher" ? f.effect > 0 : null);
+  const unitOf = (name) => (name.match(/\(([^)]*)\)$/) || [])[1] || cu;
+  const label = (name) => name.replace(/ \([^)]*\)$/, "");
+  const lineText = (l) => `<li><span>${esc(l.item)}${l.part === "Investment per year" ? ' <small class="muted">(investment per year)</small>' : ""}</span><b>${sign(l.effect)} ${esc(cu)}/yr</b></li>`;
+  const figText = (f) => `<li><span>${esc(label(f.name))}</span><b>${sign(f.effect, Math.abs(f.effect) < 100 ? 1 : 0)} ${esc(unitOf(f.name) === "%" ? "points" : unitOf(f.name))}</b></li>`;
+  q("pros").innerHTML = lines.filter((l) => l.effect < 0).map(lineText).concat(figures.filter((f) => good(f) === true && Math.abs(f.effect) > 1e-3).map(figText)).join("") || '<li><span class="muted">None</span></li>';
+  q("cons").innerHTML = lines.filter((l) => l.effect > 0).map(lineText).concat(figures.filter((f) => good(f) === false && Math.abs(f.effect) > 1e-3).map(figText)).join("") || '<li><span class="muted">None</span></li>';
+  const fig = (name) => figures.find((f) => f.name === name);
+  const co2 = fig("CO2 emitted (t)"), gas = fig("Gas (MWh)"), ss = fig("Self-sufficiency (%)");
+  tiles(q("tiles"), [
+    ["Yearly cost of the site", `${sign(-e.difference)} ${cu}`, "investments per year included", none ? "" : worth ? "good" : "bad"],
+    ["Investment", m(e.extra_investment), `${m(e.invested_with)} with, ${m(e.invested_without)} without`],
+    ["Running cost", `${sign(-e.running_saving)} ${cu}/yr`, "grid, gas, CO2, O&M, EMS, revenues", e.running_saving > 0.5 ? "good" : e.running_saving < -0.5 ? "bad" : ""],
+    ["Payback", e.payback_yr == null ? "–" : `${fmt(e.payback_yr, 1)} yr`,
+      e.payback_yr != null ? "investment ÷ running saving" : e.extra_investment <= 0.5 ? "no extra investment" : "the running cost does not fall"],
+    co2 && Math.abs(co2.effect) > 0.05 && ["CO2 emitted", `${sign(co2.effect, 1)} t/yr`, "the CO2 of the gas burnt", co2.effect < 0 ? "good" : "bad"],
+    gas && Math.abs(gas.effect) > 0.5 && ["Gas burnt", `${sign(gas.effect)} MWh/yr`, "", gas.effect < 0 ? "good" : "bad"],
+    ss && Math.abs(ss.effect) > 0.05 && ["Self-sufficiency", `${sign(ss.effect, 1)} points`, "share of the load covered by PV", ss.effect > 0 ? "good" : "bad"],
+  ]);
+  let level = e.total_without;
+  const steps = lines.map((l) => { const from = level; level += l.effect; return { label: l.item, range: [from, level], color: l.effect < 0 ? COLORS.exp : COLORS.neg }; });
+  const bars = [{ label: "Without it", range: [0, e.total_without], color: "#94a3b8" }, ...steps, { label: "With it", range: [0, e.total_with], color: COLORS.accent }];
+  const lo = Math.min(...bars.slice(1, -1).map((bb) => Math.min(...bb.range)), e.total_with, e.total_without);
+  chart(`fx-${x}-chart`, { type: "bar", data: { labels: bars.map((bb) => bb.label), datasets: [{ data: bars.map((bb) => bb.range), backgroundColor: bars.map((bb) => bb.color) }] },
+    options: { layout: { padding: { top: 20 } }, plugins: { legend: { display: false },
+      barLabels: { text: (i) => (i === 0 || i === bars.length - 1 ? fmt(bars[i].range[1]) : sign(bars[i].range[1] - bars[i].range[0])),
+        color: (i) => (i === 0 || i === bars.length - 1 ? "#0f172a" : bars[i].range[1] < bars[i].range[0] ? "#15803d" : "#b42318") },
+      tooltip: { callbacks: { label: (ctx) => {
+      const [p0, p1] = ctx.raw; const i = ctx.dataIndex;
+      return i === 0 || i === bars.length - 1 ? m(p1) : `${sign(p1 - p0)} ${cu}/yr`;
+    } } } }, scales: { x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 40 } },
+      y: { min: Math.max(0, Math.floor((lo * 0.97) / 1000) * 1000), title: { display: true, text: `${cu} per year` } } } } });
+  q("table").innerHTML = `<tr><th>Item, ${esc(cu)}/yr</th><th>With</th><th>Without</th><th>Effect</th></tr>` + T.rows.map((r) => {
+    const total = String(r[tc("Item")]).startsWith("Total") || r[tc("Part")] === "Total", ef = r[tc("Effect")];
+    return `<tr${total ? ' class="total"' : ""}><td class="text">${esc(r[tc("Item")])}</td><td>${fmt(r[tc("With")], 0)}</td><td>${fmt(r[tc("Without")], 0)}</td>` +
+      `<td class="${Math.abs(ef) < 0.5 ? "" : ef < 0 ? "better" : "worse"}">${Math.abs(ef) < 0.5 ? "0" : sign(ef)}</td></tr>`;
   }).join("");
-  renderTable("cFigures", C.figures, { format: (v) => (typeof v === "number" ? fmt(v, Math.abs(v) < 100 ? 1 : 0) : v) });
+  q("figures").innerHTML = `<tr><th>Figure</th><th>With</th><th>Without</th><th>Effect</th></tr>` + figures.map((f) => {
+    const d = Math.abs(f.effect) < 100 ? 1 : 0, g = good(f);
+    return `<tr><td class="text">${esc(f.name)}</td><td>${fmt(f.with_, d)}</td><td>${fmt(f.without, d)}</td>` +
+      `<td class="${Math.abs(f.effect) < 1e-3 || g === null ? "" : g ? "better" : "worse"}">${Math.abs(f.effect) < 1e-3 ? "0" : sign(f.effect, d)}</td></tr>`;
+  }).join("");
 }
 
 // the electricity side, for every run: one case without battery, and one with the chosen battery when there is one
@@ -1642,13 +1918,26 @@ function renderElectricity() {
   const m = (v) => `${fmt(v, 0)} ${c}`;
   if (!S.results.battery && !S.results.boiler) $("resLead").textContent = `Electricity of the system · regime ${k.regime}`;
   tiles("eTiles", [
-    ["Electricity demand", `${fmt(k.load_mwh, 0)} MWh`, `peak ${fmt(k.load_peak_kw, 0)} kW · ${fmt(k.import_mwh, 0)} MWh bought`],
+    ["Electricity demand", `${fmt(k.load_mwh, 0)} MWh`, `peak ${fmt(k.load_peak_kw, 0)} kW · ${fmt(k.import_mwh, 0)} MWh bought` + (k.heat_pump_mwh > 0.05 ? ` · heat pump ${fmt(k.heat_pump_mwh, 0)} MWh` : "")],
     ["PV production", `${fmt(k.pv_mwh, 0)} MWh`, `Voltiris ${fmt(k.voltiris_mwh, 0)} · existing PV ${fmt(k.existing_pv_mwh, 0)} MWh`],
     ["Self-consumption", `${fmt(k.sc_pct, 1)} %`, `${fmt(k.pv_used_on_site_mwh, 0)} of ${fmt(k.pv_mwh, 0)} MWh of PV used on site`, "accent"],
     ["Self-sufficiency", `${fmt(k.ss_pct, 1)} %`, "of the load covered by the PV"],
     ["Export revenue", m(k.export_revenue), `${fmt(k.export_mwh, 0)} MWh sold to the grid`],
     ["Yearly bill", m(k.bill), `${m(k.bill_no_pv)} without PV: the PV saves ${m(k.saving_vs_no_pv)}`],
   ]);
+  const PV = E.cases.no_battery.pv_savings;
+  $("ePvCard").hidden = !PV || !(E.cases.no_battery.kpi.pv_mwh > 0);
+  if (!$("ePvCard").hidden) {
+    const f = PV.figures, p = PV.parts;
+    tiles("ePvTiles", [
+      ["Saving from the PV", `${m(p.Total)}/yr`, "the bill without PV − with it (no battery)", p.Total > 0 ? "good" : "bad"],
+      ["Imports avoided", m(p["Imports avoided"]), `${fmt(f.pv_used_mwh, 0)} MWh used on site, ${fmt(f.import_price_avoided, 3)} ${c}/kWh on average`],
+      ["Export revenue", m(p["Export revenue"]), `${fmt(f.pv_exported_mwh, 0)} MWh exported`],
+      ["Capacity charges saved", m(p["Capacity charges saved"]), "lower peaks bought"],
+      Math.abs(p["EaaS fee"]) >= 0.5 && ["EaaS fee", m(p["EaaS fee"]), "paid to Voltiris"],
+    ]);
+    drawSavings("ePvChart", "ePvTable", PV, c);
+  }
   const M = C.monthly, col = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]);
   const labels = M.index, neg = (a) => a.map((v) => -v), some = (d) => d.data.some((v) => Math.abs(v) > 1e-9);
   const bar = (label, data, color, stack = "s") => ({ type: "bar", label, data, backgroundColor: color, stack, order: 2 });
@@ -1658,7 +1947,8 @@ function renderElectricity() {
     bar("Voltiris to load", col("Voltiris to load (MWh)"), COLORS.pv), bar("Existing PV to load", col("Existing PV to load (MWh)"), COLORS.existing),
     bar("Battery to load", col("Battery to load (MWh)"), COLORS.bat), bar("Grid to load", col("Grid to load (MWh)"), COLORS.imp),
     lineOn("Load", col("Load (MWh)"), COLORS.load, "load"),
-  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "MWh per month" } } } } });
+    M.columns.includes("Heat pump (MWh)") && lineOn("Of which the heat pump", col("Heat pump (MWh)"), COLORS.hp, "hp", { borderDash: [4, 3] }),
+  ].filter(Boolean).filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "MWh per month" } } } } });
   const direct = col("Voltiris to load (MWh)").map((v, i) => v + col("Existing PV to load (MWh)")[i]);
   chart("eSc", { type: "bar", data: { labels, datasets: [
     bar("PV used directly", direct, COLORS.pv), bar("PV stored in the battery", col("PV to battery (MWh)"), "#9fd3cd"),
@@ -1691,6 +1981,7 @@ function drawElecWeek() {
     bar("Voltiris to load", sl(h.voltiris_to_load), COLORS.pv), bar("Existing PV to load", sl(h.existing_to_load), COLORS.existing),
     bar("Battery to load", sl(h.battery_to_load), COLORS.bat), bar("Grid to load", sl(h.grid_to_load), COLORS.imp),
     total("Load", sl(h.load), COLORS.load),
+    total("Of which the heat pump", sl(h.heat_pump), COLORS.hp, { borderDash: [4, 3], borderWidth: 1.4 }),
   ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
   const used = sl(h.voltiris_to_load).map((v, i) => v + sl(h.existing_to_load)[i]);
   chart("eWeekPv", { type: "bar", data: { labels, datasets: [
@@ -1708,55 +1999,97 @@ function drawElecWeek() {
 }
 $("eWeek").addEventListener("input", drawElecWeek);
 
+function renderHeatPump() {
+  const H = S.results.heat_pump, s = H.summary, c = s.currency;
+  const m = (v, d = 0) => `${fmt(v, d)} ${c}`, perMwh = (v) => (v == null ? "–" : `${m(v, 1)}/MWh`);
+  tiles("hpTiles", [
+    ["Heat pump", `${fmt(s.heat_pump_kw)} kW`, s.sized === "fixed" ? "of heat, the size you gave" : "of heat, sized together", "accent"],
+    ["Heat given", `${fmt(s.hp_heat_mwh, 0)} MWh`, `${fmt(s.hp_heat_share_pct, 1)} % of the ${fmt(s.heat_demand_mwh, 0)} MWh demand` + (s.hp_full_load_h ? ` · ${fmt(s.hp_full_load_h, 0)} full-load hours` : "")],
+    ["Electricity drawn", `${fmt(s.hp_electricity_mwh, 0)} MWh`, `peak ${fmt(s.hp_electricity_peak_kw, 0)} kW · at most ${fmt(s.hp_electricity_max_kw, 0)} kW at the lowest COP`],
+    ["Seasonal COP (SPF)", s.spf == null ? "–" : fmt(s.spf, 2), s.cop_mode === "constant" ? "constant COP" : `heat ÷ electricity over the year · COP ${fmt(s.cop_min, 2)} to ${fmt(s.cop_max, 2)}`],
+    ["Its heat costs", perMwh(s.hp_heat_cost_per_mwh), `electricity ${perMwh(s.hp_running_cost_per_mwh)} + O&M + investment ÷ life`],
+    ["Investment", m(s.hp_investment), `${m(s.hp_investment_per_year)}/yr over ${fmt(s.hp_life_yr)} yr · O&M ${m(s.hp_fixed_om_yr)}/yr`],
+  ]);
+  const why = [s.sized === "fixed" ? `The heat pump has the size you gave, <b>${fmt(s.heat_pump_kw)} kW</b> of heat.`
+    : s.heat_pump_kw > 0 ? `<b>Sized together</b> with the other blocks (System tab): <b>${fmt(s.heat_pump_kw)} kW</b> of heat.`
+      : "<b>Not worth installing</b> under these prices: the joint sizing gives it no size."];
+  if (s.hp_heat_mwh > 0.5) why.push(`At each step the model takes heat from the cheaper source. Its electricity cost ${perMwh(s.hp_electricity_price_paid * 1000)} on average at the import price, so ${perMwh(s.hp_running_cost_per_mwh)} of heat at its SPF of ${fmt(s.spf, 2)}` +
+    (s.boiler_running_cost_per_mwh != null ? `, against ${perMwh(s.boiler_running_cost_per_mwh)} of heat from the boiler on average (gas, levy, O&M).` : "."));
+  if (s.boiler_heat_mwh > 0.5) why.push(`The boiler gives ${fmt(s.boiler_heat_mwh, 0)} MWh: at the peaks above the heat pump's size, at the hours its heat is cheaper` + (S.results.boiler && S.results.boiler.summary.co2_mode === "required" ? ", and when it runs for the greenhouse's CO2." : "."));
+  if (s.heat_unmet_mwh > 0.05) why.push(`${fmt(s.heat_unmet_mwh, 1)} MWh of heat stays unmet: the size is too small for the peaks.`);
+  why.push("The import price here is the energy and network price per kWh; the capacity charges it adds and the PV it uses are in the grid bill (Electricity tab). The comparison with and without it below counts everything.");
+  $("hpWhy").innerHTML = why.join(" ");
+  const M = H.monthly, col = (n) => (M.columns.includes(n) ? M.rows.map((r) => r[M.columns.indexOf(n)]) : null);
+  const bar = (label, data, color, extra = {}) => data && { type: "bar", label, data, backgroundColor: color, stack: "s", order: 2, ...extra };
+  const some = (d) => d && d.data.some((v) => Math.abs(v || 0) > 1e-9);
+  chart("hpMonthly", { type: "bar", data: { labels: M.index, datasets: [
+    bar("Heat pump", col("Heat pump heat (MWh)"), COLORS.hp), bar("Boiler", col("Boiler heat (MWh)"), COLORS.heat),
+    bar("From the tank", col("From the tank (MWh)"), "#be185d"), bar("Unmet", col("Heat unmet (MWh)"), COLORS.neg),
+    { type: "line", label: "Heat demand", data: col("Heat demand (MWh)"), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 2, stack: "d", order: 1 },
+  ].filter(some) }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: "MWh of heat per month" } } } } });
+  chart("hpElec", { type: "bar", data: { labels: M.index, datasets: [
+    { type: "bar", label: "Electricity drawn, MWh", data: col("Heat pump electricity (MWh)"), backgroundColor: COLORS.hp, yAxisID: "y", order: 2 },
+    { type: "line", label: "Mean COP", data: col("Mean COP"), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 2, yAxisID: "y1", order: 1 },
+    { type: "line", label: "COP of the heat given", data: col("COP of the heat given"), borderColor: COLORS.exp, backgroundColor: COLORS.exp, borderDash: [4, 3], pointRadius: 2, yAxisID: "y1", order: 1 },
+  ] }, options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "MWh per month" } },
+    y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: "COP" } } } } });
+  const curve = H.cop_curve || [];
+  if (curve.length) {
+    chart("hpCop", { type: "line", data: { labels: curve.map((p) => `${p[0]} °C`), datasets: [
+      line("COP", curve.map((p) => p[1]), COLORS.hp, { pointRadius: 0 }),
+    ] }, options: { plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: "outside temperature" }, ticks: { maxTicksLimit: 12 } },
+      y: { beginAtZero: true, title: { display: true, text: "COP" } } } } });
+  } else {
+    const d = H.daily, t0 = new Date(d.start + "Z").getTime();
+    chart("hpCop", { type: "line", data: { labels: d.cop.map((_, i) => new Date(t0 + i * 864e5).toISOString().slice(0, 10)), datasets: [
+      line("COP", d.cop, COLORS.hp, { pointRadius: 0 }),
+    ] }, options: { plugins: { legend: { display: false } }, scales: { x: { ticks: monthTicks, grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "COP" } } } } });
+  }
+  $("hpCopHint").textContent = s.cop_mode === "constant" ? `Constant COP: ${fmt(s.cop_nominal, 2)} all year.`
+    : `COP = ${fmt(s.cop_nominal, 2)} × (${fmt(s.supply_temp_c)} − ${fmt(s.ref_outside_temp_c)}) ÷ (${fmt(s.supply_temp_c)} − outside temperature): ${fmt(s.cop_nominal, 2)} at ${fmt(s.ref_outside_temp_c)} °C outside, lower when it is colder. Over the year the outside air is ${fmt(s.outside_temp_min, 1)} to ${fmt(s.outside_temp_max, 1)} °C.`;
+  renderTable("hpMonthlyTable", M, { indexLabel: "Month" });
+  drawHpWeek();
+}
+function drawHpWeek() {
+  const H = S.results && S.results.heat_pump; if (!H || !H.hourly) return;
+  const h = H.hourly, week = Number($("hpWeek").value), from = week * 168, n = Math.min(168, h.heat_demand.length - from);
+  const labels = hourLabels(h.start, from, n), sl = (a) => (a || []).slice(from, from + n);
+  $("hpWeekLabel").textContent = `${labels[0].slice(0, 10)} to ${labels[n - 1].slice(0, 10)}`;
+  const bar = (label, data, color) => ({ type: "bar", label, data, backgroundColor: color, stack: "s", order: 2, barPercentage: 1, categoryPercentage: 1 });
+  const total = (label, data, color, extra = {}) => ({ type: "line", label, data, borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 1.8, stack: "line", order: 1, ...extra });
+  const some = (d) => d.data.some((v) => Math.abs(v || 0) > 1e-9);
+  const x = { stacked: true, ticks: dayTicks, grid: { display: false } };
+  chart("hpWeekHeat", { type: "bar", data: { labels, datasets: [
+    bar("Heat pump", sl(h.hp_heat), COLORS.hp), bar("Boiler", sl(h.boiler_heat), COLORS.heat),
+    bar("From the tank", sl(h.storage_discharge), "#be185d"), bar("Unmet", sl(h.heat_unmet), COLORS.neg),
+    total("Heat demand", sl(h.heat_demand), COLORS.load),
+  ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
+  chart("hpWeekEl", { type: "bar", data: { labels, datasets: [
+    bar("Electricity drawn, kW", sl(h.hp_electricity), COLORS.hp),
+    total("COP", sl(h.cop), COLORS.load, { yAxisID: "y1" }),
+  ] }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } },
+    y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: "COP" } } } } });
+}
+$("hpWeek").addEventListener("input", drawHpWeek);
+
 function renderStorageStudy() {
   const T = S.results.storage, s = T.summary, ch = T.choice, c = s.currency, life = ch.life_yr;
   const m = (v, d = 0) => `${fmt(v, d)} ${c}`;
+  const M = T.monthly, mc = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]), sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
+  const gasCols = M.columns.includes("Gas, no storage (MWh)"), hpCols = M.columns.includes("Heat pump electricity, no storage (MWh)");
+  const sources = (boiler, hp) => [boiler != null && `boiler ${fmt(boiler)} kW`, hp != null && `heat pump ${fmt(hp)} kW`].filter(Boolean).join(" · ");
   tiles("sTiles", [
-    ["Chosen heat storage", `${fmt(s.storage_kwh)} kWh`, `${fmt(s.storage_power_kw)} kW in and out · boiler ${fmt(ch.boiler_kw)} kW`, "accent"],
+    ["Chosen heat storage", `${fmt(s.storage_kwh)} kWh`, `${fmt(s.storage_power_kw)} kW in and out · ${sources(ch.boiler_kw, ch.heat_pump_kw)}`, "accent"],
     ["Yearly value", m(s.storage_value_yr), ch.objective === "joint" ? "site cost saved, before its investment" : "running cost saved − fixed O&M"],
     ["Investment", m(s.storage_investment), `life ${fmt(life)} yr`],
     ["Payback", s.storage_payback_yr == null ? "never" : `${fmt(s.storage_payback_yr, 1)} yr`, `lifetime profit ${m(s.storage_lifetime_profit)}`],
     ["Heat through the tank", `${fmt(s.storage_discharged_mwh, 0)} MWh`, `${fmt(s.storage_cycles, 0)} full cycles · ${fmt(s.storage_losses_mwh, 1)} MWh lost`],
-    ["Gas saved", `${fmt(s.gas_mwh_no_storage - s.gas_mwh_storage, 0)} MWh`, `heat released ${fmt(s.heat_released_mwh_no_storage, 0)} → ${fmt(s.heat_released_mwh_storage, 0)} MWh`],
+    gasCols && ["Gas saved", `${fmt(s.gas_mwh_no_storage - s.gas_mwh_storage, 0)} MWh`, `${fmt(s.gas_mwh_no_storage, 0)} → ${fmt(s.gas_mwh_storage, 0)} MWh a year; negative: the tank's losses cost more gas than it saves`],
+    hpCols && ["Heat pump electricity", `${fmt(sum(mc("Heat pump electricity, storage (MWh)")), 0)} MWh`, `${fmt(sum(mc("Heat pump electricity, no storage (MWh)")), 0)} MWh a year without storage`],
   ]);
-  const sw = T.sweep, col = (n) => sw.columns.indexOf(n);
-  const rows = sw.rows.map((r) => ({ size: r[col("size")], value: r[col("value")], inv: r[col("investment")], pb: r[col("payback")],
-    profit: r[col("lifetime_profit")], released: r[col("released_heat_mwh")], stored: r[col("charged_mwh")], lost: r[col("losses_mwh")] }))
-    .sort((a, b) => a.size - b.size);
-  const chosen = rows.find((r) => r.size === s.storage_kwh) || {};
-  const pays = (r) => r.pb != null && r.pb <= life;
-  const paying = rows.filter(pays);
-  const pbText = (r) => (r.pb == null ? "never" : `${fmt(r.pb, 1)} years`);
-  const kwh = (x) => `<b>${fmt(x)} kWh</b>`;
-  let why;
-  if (ch.objective === "joint") why = `<b>Sized together</b> with the boiler (System tab): with ${kwh(chosen.size)} of storage the boiler is ${fmt(ch.boiler_kw)} kW; without storage it would be ${fmt(ch.boiler_kw_without)} kW. ` +
-    `The site's yearly cost is ${fmt(ch.system_value)} ${c} lower with it, after its investment spread over ${fmt(life)} years. Compared with that system: yearly value ${fmt(chosen.value)} ${c} before its investment, payback ${pbText(chosen)}.`;
-  else if (ch.objective === "custom") why = `Objective <b>custom</b>: ${kwh(chosen.size)} is the tested size closest to the size you gave, ${fmt(ch.custom_kwh)} kWh.`;
-  else if (ch.objective === "payback") why = `Objective <b>payback</b>: ${kwh(chosen.size)} has the shortest payback of the ${rows.length} sizes tested, ${pbText(chosen)}.`;
-  else if (paying.length) {
-    const next = paying.filter((r) => r !== chosen).sort((a, b) => b.profit - a.profit)[0];
-    why = `Objective <b>profit</b>. ${paying.length} of the ${rows.length} sizes tested pay back within the storage life of ${fmt(life)} years. ` +
-      `Among them ${kwh(chosen.size)} has the highest lifetime profit: ${fmt(chosen.value)} ${c}/yr &times; ${fmt(life)} years &minus; ${fmt(chosen.inv)} ${c} = <b>${fmt(chosen.profit)} ${c}</b>.` +
-      (next ? ` Next best: ${fmt(next.size)} kWh with ${fmt(next.profit)} ${c}.` : "");
-  } else {
-    why = `Objective <b>profit</b>, but none of the ${rows.length} sizes tested pays back within the storage life of ${fmt(life)} years` +
-      (rows.every((r) => r.pb == null) ? `, and none saves anything, so the first size, ${kwh(chosen.size)}, is kept. Under these settings no heat storage is worth it.`
-        : `, so the size with the shortest payback is kept: ${kwh(chosen.size)}, ${pbText(chosen)}.`);
-  }
-  if (ch.objective !== "joint") why += `<br>Sized one at a time, with the boiler fixed at ${fmt(ch.boiler_kw)} kW: the tank can only save heat the boiler would release (${fmt(s.heat_released_mwh_no_storage, 0)} MWh a year without storage) and shift gas to cheaper days. Sizing together (System page) lets it make the boiler smaller.`;
-  $("sWhy").innerHTML = why;
-  const sizes = rows.map((r) => r.size);
-  chart("sSweep", { type: "bar", data: { labels: sizes.map((x) => `${fmt(x)} kWh`), datasets: [
-    { type: "bar", label: `Yearly value, ${c}`, data: rows.map((r) => r.value), backgroundColor: sizes.map((x) => (x === s.storage_kwh ? COLORS.heat : "#fdba74")), yAxisID: "y", order: 2 },
-    { type: "line", label: "Payback, years", data: rows.map((r) => r.pb), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 3, yAxisID: "y1", order: 1 },
-    { type: "line", label: `Storage life, ${fmt(life)} years (payback limit)`, data: sizes.map(() => life), borderColor: COLORS.grey, backgroundColor: COLORS.grey,
-      borderDash: [6, 4], borderWidth: 1.4, pointRadius: 0, yAxisID: "y1", order: 0 }] },
-    options: { scales: { y: { title: { display: true, text: `${c} per year` } },
-      y1: { position: "right", grid: { display: false }, title: { display: true, text: "years" }, beginAtZero: true } } } });
-  $("sSweepTable").innerHTML = `<tr><th>Size, kWh</th><th>Yearly value, ${c}</th><th>Investment, ${c}</th><th>Payback</th><th>Within ${fmt(life)} yr</th><th>Lifetime profit, ${c}</th><th>Heat stored, MWh</th><th>Lost, MWh</th><th>Heat released, MWh</th><th></th></tr>` +
-    rows.map((r) => `<tr${r === chosen ? ' class="hl"' : ""}><td>${fmt(r.size)}</td><td>${fmt(r.value)}</td><td>${fmt(r.inv)}</td><td>${pbText(r)}</td>
-      <td class="${pays(r) ? "yes" : "no"}">${pays(r) ? "yes" : "no"}</td><td>${fmt(r.profit)}</td><td>${fmt(r.stored, 1)}</td><td>${fmt(r.lost, 1)}</td>
-      <td>${fmt(r.released, 0)}</td><td>${r === chosen ? '<span class="tag">chosen</span>' : ""}</td></tr>`).join("");
+  const pbText = s.storage_payback_yr == null ? "never" : `${fmt(s.storage_payback_yr, 1)} years`;
+  $("sWhy").innerHTML = `<b>${fixedInCase("thermal_storage") ? "Fixed in the case" : "Sized together"}</b> with the heat sources (System tab): with <b>${fmt(s.storage_kwh)} kWh</b> of storage, ${sources(ch.boiler_kw, ch.heat_pump_kw)}; without storage, ${sources(ch.boiler_kw_without, ch.heat_pump_kw_without)}. ` +
+    `The site's yearly cost is ${fmt(ch.system_value)} ${c} lower with it, after its investment spread over ${fmt(life)} years. Compared with that system: yearly value ${fmt(s.storage_value_yr)} ${c} before its investment, payback ${pbText}.`;
   const d = T.daily, n = d.storage_charge.length, t0 = new Date(d.start + "Z").getTime();
   const labels = Array.from({ length: n }, (_, i) => new Date(t0 + i * 864e5).toISOString().slice(0, 10));
   const x = { ticks: monthTicks, grid: { display: false } };
@@ -1781,14 +2114,35 @@ function renderStorageStudy() {
     `<tr class="total"><td class="text">Yearly value, before its investment</td><td>${fmt(s.storage_value_yr, 0)}</td></tr>` +
     `<tr><td class="text">Its investment per year (${fmt(s.storage_investment, 0)} over ${fmt(life)} years)</td><td>${fmt(-s.storage_investment / life, 0)}</td></tr>` +
     `<tr class="total"><td class="text">Value after its investment</td><td>${fmt(s.storage_value_yr - s.storage_investment / life, 0)}</td></tr>`;
-  // gas per month
-  const M = T.monthly, mc = (n) => M.rows.map((r) => r[M.columns.indexOf(n)]);
+  // gas (and the heat pump's electricity) per month
+  const F = T.fuel;
+  $("sFuelCard").hidden = !F;
+  if (F) {
+    tiles("sFuelTiles", [
+      ["Gas saved", `${fmt(F.gas_saved_mwh, 1)} MWh`, `${m(F.gas_saved_cost)}, carbon levy included`, F.gas_saved_mwh > 0.05 ? "good" : "bad"],
+      ["Heat from the tank", `${fmt(F.heat_given_back_mwh, 1)} MWh`, "to the greenhouse instead of the boiler"],
+      ["Gas it replaces", `${fmt(F.gas_replaced_mwh, 1)} MWh`, `${m(F.gas_replaced_cost)} at the moment it is given back`],
+      ["Extra gas to fill it", `${fmt(F.extra_gas_mwh, 1)} MWh`, `${m(F.extra_gas_cost)}; ${fmt(F.released_avoided_mwh, 1)} MWh that would be released fills it free`],
+    ]);
+    const replaced = mc("Gas the tank's heat replaces (MWh)"), extra = mc("Extra gas to fill the tank (MWh)");
+    chart("sFuelChart", { type: "bar", data: { labels: M.index, datasets: [
+      { type: "bar", label: "Gas the tank's heat replaces, MWh", data: replaced, backgroundColor: COLORS.exp, stack: "s", order: 2 },
+      { type: "bar", label: "Extra gas to fill it, MWh", data: extra.map((v) => -v), backgroundColor: COLORS.neg, stack: "s", order: 2 },
+      { type: "line", label: "Gas saved, MWh", data: replaced.map((v, i) => v - extra[i]), borderColor: COLORS.load, backgroundColor: COLORS.load, pointRadius: 2, stack: "t", order: 1 },
+    ] }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, title: { display: true, text: "MWh of gas per month" } } } } });
+  }
+  $("sGasTitle").textContent = gasCols ? (hpCols ? "Gas and the heat pump's electricity per month, without and with the storage" : "Gas per month, without and with the storage")
+    : "The heat pump's electricity per month, without and with the storage";
+  $("sGasHint").textContent = (gasCols ? "The line is the running cost the storage saves each month (gas, carbon levy, boiler variable O&M). " : "") +
+    (hpCols ? "With the heat pump the tank also moves its electricity to cheaper hours and higher COP; that saving is in the grid bill (see where the yearly value comes from)." : "");
   chart("sGasMonthly", { type: "bar", data: { labels: M.index, datasets: [
-    { type: "bar", label: "Gas without storage, MWh", data: mc("Gas, no storage (MWh)"), backgroundColor: "#cbd5e1", yAxisID: "y", order: 2 },
-    { type: "bar", label: "Gas with storage, MWh", data: mc("Gas, storage (MWh)"), backgroundColor: COLORS.gas, yAxisID: "y", order: 2 },
-    { type: "line", label: `Running cost saved, ${c}`, data: mc("Running cost saved"), borderColor: COLORS.heat, backgroundColor: COLORS.heat, pointRadius: 3, yAxisID: "y1", order: 1 },
-  ] }, options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "MWh of gas" } },
-    y1: { position: "right", grid: { display: false }, title: { display: true, text: c } } } } });
+    gasCols && { type: "bar", label: "Gas without storage, MWh", data: mc("Gas, no storage (MWh)"), backgroundColor: "#cbd5e1", yAxisID: "y", order: 2 },
+    gasCols && { type: "bar", label: "Gas with storage, MWh", data: mc("Gas, storage (MWh)"), backgroundColor: COLORS.gas, yAxisID: "y", order: 2 },
+    hpCols && { type: "bar", label: "Heat pump electricity without storage, MWh", data: mc("Heat pump electricity, no storage (MWh)"), backgroundColor: "#f5d0fe", yAxisID: "y", order: 2 },
+    hpCols && { type: "bar", label: "Heat pump electricity with storage, MWh", data: mc("Heat pump electricity, storage (MWh)"), backgroundColor: COLORS.hp, yAxisID: "y", order: 2 },
+    gasCols && { type: "line", label: `Running cost saved, ${c}`, data: mc("Running cost saved"), borderColor: COLORS.heat, backgroundColor: COLORS.heat, pointRadius: 3, yAxisID: "y1", order: 1 },
+  ].filter(Boolean) }, options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: "MWh" } },
+    y1: { position: "right", display: gasCols, grid: { display: false }, title: { display: true, text: c } } } } });
   drawStorageWeek();
 }
 function drawStorageWeek() {
@@ -1801,14 +2155,17 @@ function drawStorageWeek() {
   const some = (d) => d.data.some((v) => Math.abs(v || 0) > 1e-9);
   const x = { stacked: true, ticks: dayTicks, grid: { display: false } };
   const direct = sl(h.heat_demand).map((v, i) => Math.max(v - sl(h.storage_discharge)[i] - sl(h.heat_unmet)[i], 0));
+  const withHp = !!h.hp_heat, plus = (a, b) => (b ? a.map((v, i) => v + (b[i] || 0)) : a);
+  const what = withHp ? (S.results.boiler ? "Boiler and heat pump" : "Heat pump") : "Boiler";
+  $("sWeekSourceTitle").textContent = withHp ? `What the ${S.results.boiler ? "boiler and the heat pump give" : "heat pump gives"}` : "What the boiler gives";
   chart("sWeekDemand", { type: "bar", data: { labels, datasets: [
-    bar("Boiler, directly", direct, COLORS.heat), bar("From the tank", sl(h.storage_discharge), "#be185d"), bar("Unmet", sl(h.heat_unmet), COLORS.neg),
+    bar(`${what}, directly`, direct, COLORS.heat), bar("From the tank", sl(h.storage_discharge), "#be185d"), bar("Unmet", sl(h.heat_unmet), COLORS.neg),
     total("Heat demand", sl(h.heat_demand), COLORS.load),
   ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
   chart("sWeekBoiler", { type: "bar", data: { labels, datasets: [
     bar("To the greenhouse", direct, COLORS.heat), bar("Into the tank", sl(h.storage_charge), "#fdba74"), bar("Released", sl(h.heat_release), COLORS.grey),
-    total("Boiler output", sl(h.boiler_heat), COLORS.load),
-    total("Boiler output without storage", sl(h.boiler_heat_no_storage), COLORS.load, { borderDash: [5, 4], borderWidth: 1.4 }),
+    total(`${what} output`, plus(sl(h.boiler_heat), withHp && sl(h.hp_heat)), COLORS.load),
+    total(`${what} output without storage`, plus(sl(h.boiler_heat_no_storage), withHp && sl(h.hp_heat_no_storage)), COLORS.load, { borderDash: [5, 4], borderWidth: 1.4 }),
   ].filter(some) }, options: { scales: { x, y: { stacked: true, beginAtZero: true, title: { display: true, text: "kW" } } } } });
   chart("sWeekTank", { type: "line", data: { labels, datasets: [
     line("Heat in the tank, kWh", sl(h.storage_soc), COLORS.soc, { fill: { target: "origin" }, backgroundColor: "rgba(124,58,237,.12)" }),
@@ -1819,48 +2176,24 @@ $("sWeek").addEventListener("input", drawStorageWeek);
 function renderBoilerStudy() {
   const H = S.results.boiler, s = H.summary, ch = H.choice, c = s.currency, life = ch.life_yr;
   const m = (v, d = 0) => `${fmt(v, d)} ${c}`;
-  if (!S.results.battery) $("resLead").textContent = `${ch.joint ? "Sized together" : `Gas boiler study · objective: ${BOILER_OBJECTIVE[ch.objective]}`} · CO2 demand ${s.co2_mode === "required" ? "must be met" : "by-product of heating"}`;
+  if (!S.results.battery) $("resLead").textContent = `Sized together · CO2 demand ${s.co2_mode === "required" ? "must be met" : "by-product of heating"}`;
   tiles("hTiles", [
-    ["Chosen boiler", `${fmt(s.boiler_kw)} kW`, s.boiler_covers ? (ch.storage_kwh ? `covers the demand with the heat storage (peak ${fmt(s.boiler_needed_kw)} kW)` : `covers the demand (needs ${fmt(s.boiler_needed_kw)} kW)`) : "does not cover the demand", s.boiler_covers ? "accent" : "warn"],
-    ["Heat cost", `${m(s.heat_cost_per_mwh, 2)}/MWh`, "investment ÷ life + yearly cost, per MWh of heat met"],
+    ["Chosen boiler", `${fmt(s.boiler_kw)} kW`, s.boiler_covers && ch.heat_pump_kw ? `covers the demand with the ${fmt(ch.heat_pump_kw)} kW heat pump${ch.storage_kwh ? " and the heat storage" : ""}` : s.boiler_covers ? (ch.storage_kwh ? `covers the demand with the heat storage (peak ${fmt(s.boiler_needed_kw)} kW)` : `covers the demand (needs ${fmt(s.boiler_needed_kw)} kW)`) : "does not cover the demand", s.boiler_covers ? "accent" : "warn"],
+    ["Heat cost", `${m(s.heat_cost_per_mwh, 2)}/MWh`, `investment ÷ life + yearly cost, per MWh of heat ${s.hp_heat_mwh != null ? "the boiler gives" : "met"}`],
     ["Yearly cost", m(s.boiler_cost_yr), `gas ${m(s.gas_cost_yr)} · levy ${m(s.co2_levy_yr)} · O&M ${m(s.boiler_om_yr)}`],
     ["Investment", m(s.boiler_investment), `lifetime cost ${m(s.boiler_lifetime_cost)} over ${fmt(s.boiler_life_yr)} yr`],
     ["Gas burnt", `${fmt(s.gas_mwh, 0)} MWh`, `${fmt(s.boiler_full_load_h, 0)} full-load hours`],
     ["CO2 to the greenhouse", `${fmt(s.co2_supplied_t, 1)} t`, `${fmt(s.co2_self_sufficiency_pct, 1)} % of the ${fmt(s.co2_demand_t, 1)} t demand · ${fmt(s.co2_emitted_t, 0)} t emitted`],
   ]);
   // why this size
-  const sw = H.sweep, col = (n) => sw.columns.indexOf(n);
-  const rows = sw.rows.map((r) => ({ size: r[col("size")], covers: r[col("covers")], yearly: r[col("yearly_cost")], inv: r[col("investment")],
-    life: r[col("lifetime_cost")], unmetHeat: r[col("unmet_heat_mwh")], unmetCo2: r[col("unmet_co2_t")], released: r[col("released_heat_mwh")] }))
-    .sort((a, b) => a.size - b.size);
-  const chosen = rows.find((r) => r.size === s.boiler_kw) || {};
-  const covering = rows.filter((r) => r.covers);
   const kw = (x) => `<b>${fmt(x)} kW</b>`;
-  let why;
-  if (ch.joint) why = `<b>Sized together</b> with the other blocks (System tab): ${kw(chosen.size)}${ch.storage_kwh ? `, with the ${fmt(ch.storage_kwh)} kWh heat storage taking part of the peaks` : ""}.`;
-  else if (ch.objective === "custom") why = `Objective <b>custom</b>: ${kw(chosen.size)} is the tested size closest to the size you gave, ${fmt(ch.custom_kw)} kW.`;
-  else if (!covering.length) why = `None of the ${rows.length} sizes tested covers the demand, so the largest, ${kw(chosen.size)}, is kept. It leaves ${fmt(chosen.unmetHeat, 1)} MWh of heat and ${fmt(chosen.unmetCo2, 1)} t of CO2 unmet: test larger sizes on the Gas boiler page.`;
-  else if (ch.objective === "smallest") why = `Objective <b>smallest that covers</b>: ${covering.length} of the ${rows.length} sizes tested cover the demand; the smallest is ${kw(chosen.size)}.`;
-  else {
-    const next = covering.filter((r) => r !== chosen).sort((a, b) => a.life - b.life)[0];
-    why = `Objective <b>lowest lifetime cost</b>: ${covering.length} of the ${rows.length} sizes tested cover the demand. ${kw(chosen.size)} costs the least over ${fmt(life)} years: ` +
-      `${fmt(chosen.inv)} ${c} + ${fmt(chosen.yearly)} ${c}/yr &times; ${fmt(life)} = <b>${fmt(chosen.life)} ${c}</b>.` + (next ? ` Next: ${fmt(next.size)} kW with ${fmt(next.life)} ${c}.` : "");
-  }
+  const why = (fixedInCase("ng_boiler") ? `<b>Fixed in the case</b> at ${kw(s.boiler_kw)}` : `<b>Sized together</b> with the other blocks (System tab): ${kw(s.boiler_kw)}`) +
+    `${ch.heat_pump_kw ? `, next to the ${fmt(ch.heat_pump_kw)} kW heat pump (${fmt(s.hp_heat_mwh, 0)} MWh of heat a year)` : ""}${ch.storage_kwh ? `, with the ${fmt(ch.storage_kwh)} kWh heat storage taking part of the peaks` : ""}.`;
   const notes = [];
-  if (covering.length && rows.some((r) => !r.covers)) notes.push(`The sizes below ${fmt(covering[0].size)} kW leave demand unmet: the busiest step needs ${fmt(ch.needed_kw)} kW.`);
+  if (!s.boiler_covers) notes.push(`It leaves ${fmt(s.heat_unmet_mwh, 1)} MWh of heat and ${fmt(s.co2_unmet_t, 1)} t of CO2 unmet.`);
   if (s.heat_released_mwh > 0.5) notes.push(`${fmt(s.heat_released_mwh, 0)} MWh of heat is released: the boiler runs for CO2 when the greenhouse needs less heat.`);
-  if (s.co2_unmet_t > 0.05) notes.push(`${fmt(s.co2_unmet_t, 1)} t of the CO2 demand stays unmet.`);
+  else if (s.co2_unmet_t > 0.05) notes.push(`${fmt(s.co2_unmet_t, 1)} t of the CO2 demand stays unmet.`);
   $("hWhy").innerHTML = why + (notes.length ? "<br>" + notes.join(" ") : "");
-  // sizes: investment and yearly cost over the life, stacked
-  chart("hSweep", { type: "bar", data: { labels: rows.map((r) => `${fmt(r.size)} kW${r.covers ? "" : " (short)"}`), datasets: [
-    { label: `Investment, ${c}`, data: rows.map((r) => r.inv), backgroundColor: rows.map((r) => (r === chosen ? COLORS.load : "#cbd5e1")) },
-    { label: `Yearly cost × ${fmt(life)} years, ${c}`, data: rows.map((r) => r.yearly * life),
-      backgroundColor: rows.map((r) => (r === chosen ? COLORS.heat : r.covers ? "#fdba74" : "#e2e8f0")) },
-  ] }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, title: { display: true, text: c } } } } });
-  $("hSweepTable").innerHTML = `<tr><th>Size, kW</th><th>Covers</th><th>Unmet heat, MWh</th><th>Unmet CO2, t</th><th>Heat released, MWh</th><th>Yearly cost, ${c}</th><th>Investment, ${c}</th><th>Lifetime cost, ${c}</th><th></th></tr>` +
-    rows.map((r) => `<tr${r === chosen ? ' class="hl"' : ""}><td>${fmt(r.size)}</td><td class="${r.covers ? "yes" : "no"}">${r.covers ? "yes" : "no"}</td>
-      <td>${fmt(r.unmetHeat, 1)}</td><td>${fmt(r.unmetCo2, 1)}</td><td>${fmt(r.released, 0)}</td><td>${fmt(r.yearly)}</td><td>${fmt(r.inv)}</td>
-      <td>${fmt(r.life)}</td><td>${r === chosen ? '<span class="tag">chosen</span>' : ""}</td></tr>`).join("");
   // the year, per day
   const d = H.daily, n = d.heat_demand.length, t0 = new Date(d.start + "Z").getTime();
   const labels = Array.from({ length: n }, (_, i) => new Date(t0 + i * 864e5).toISOString().slice(0, 10));
@@ -1868,6 +2201,7 @@ function renderBoilerStudy() {
   const any = (a) => a.some((v) => v > 1e-3);
   chart("hYear", { type: "line", data: { labels, datasets: [
     line("Heat demand", d.heat_demand, COLORS.load), line("Boiler heat", d.boiler_heat, COLORS.heat),
+    d.hp_heat && any(d.hp_heat) && line("Heat pump heat", d.hp_heat, COLORS.hp),
     any(d.heat_release) && line("Heat released", d.heat_release, COLORS.grey),
     any(d.heat_unmet) && line("Heat unmet", d.heat_unmet, COLORS.neg),
     line("Gas burnt", d.gas, COLORS.gas, { borderDash: [4, 3], borderWidth: 1.3 }),
@@ -1897,9 +2231,12 @@ $("openFolder").addEventListener("click", async () => {
   objectiveChanged();
   boilerObjectiveChanged();
   storageObjectiveChanged();
-  try {   // after a refresh, the last finished run's results come back
+  hpSizeChanged();
+  try {   // after a refresh, the last finished run's results come back, and a run still going is followed
     const last = await api("/api/results");
     if (!last.error) { S.results = last; renderResults(); }
+    const st = await api("/api/status");
+    if (st.state === "running" && st.info && st.info.run_type) followRun(st.info);
   } catch (e) { /* no finished run yet */ }
   const first = S.options.cases.find((c) => c.name.startsWith("blocks/")) || S.options.cases[0];
   if (first) {

@@ -2,19 +2,22 @@
 
 | Folder | Block | Status |
 |---|---|---|
-| `greenhouse/` | greenhouse demand | electricity load; heat and CO2 demand with a heat block |
+| `greenhouse/` | greenhouse demand | electricity load; heat and CO2 demand with a heat or CO2 source |
 | `voltiris/` | Voltiris PV | runs |
 | `existing_pv/` | PV already on site | runs |
 | `grid/` | import, export, tariffs, markets | runs: CH SIG, NL Westland Infra, FR TURPE 7 HTA |
-| `battery/` | battery, its sizing and payback study | runs |
+| `battery/` | battery, its payback study and size sweep (the battery check) | runs |
 | `gas_supply/` | natural gas from the network: price, emission factor, carbon levy | runs |
-| `ng_boiler/` | natural gas boiler, its sizing study | runs (values TO CHECK) |
-| `thermal_storage/` | heat storage (hot water tank), three heat loss models, its sizing study | runs (values TO CHECK) |
+| `ng_boiler/` | natural gas boiler, its year at its size | runs (values TO CHECK) |
+| `heat_pump/` | heat pump on the outside air, COP constant or from the outside temperature | runs (values TO CHECK) |
+| `thermal_storage/` | heat storage (hot water tank), three heat loss models, its year in the system | runs (values TO CHECK) |
+| `external_co2/` | bought liquid CO2, at a price curve or a fixed price | runs (values TO CHECK) |
 | `battery_reference/` | Jesse's PV + battery model, frozen | the reference the blocks are checked against |
 
 A block holds the technical side of one part of the system. What applies across blocks (business model, prices,
-lifetimes, subsidies, EMS) is in `general/` (its README). The engine that puts both together is in `system/`. Run a case with `python system/run_case.py case.json`;
-compare with the reference with `python system/compare.py case.json`. What each block needs as input, with an example
+lifetimes, subsidies, EMS) is in `general/` (its README). The engine that puts both together, and sizes every sized
+block together, is in `system/`. Run a case with `python system/run_case.py case.json`;
+compare the battery sweep with the reference with `python system/compare.py case.json`. What each block needs as input, with an example
 file for each: `examples/blocks/README.md`.
 
 ## What a block is
@@ -27,7 +30,7 @@ file for each: `examples/blocks/README.md`.
 | `CARRIERS` | what it takes and gives (electricity, heat, CO2 and gas are modelled) |
 | `COLUMNS` | the columns of its own input file: role, default name, unit, kind (power, energy, price, state) |
 | `OWNS` | the parameter groups and keys it owns; a run's overrides go to the block that owns them |
-| `load_params(market, ...)` | its parameters from its own `params/`, money in the market's currency (`common/parameters.py`) |
+| `load_params(market, ...)` | its parameters from its own `params/`, money in the market's currency (`common/parameters.py`); existing PV has none |
 | a class | built from its parameters and columns; `add_to(network, ...)` adds its PyPSA components to its buses (`main` for electricity, `heat`, `co2`, `gas`) |
 
 Rules:
@@ -41,8 +44,8 @@ Rules:
 - Component names are the reference model's (`pv`, `load`, `grid_import`, `grid_export`, `battery_store`,
   `bat_charger`, `bat_discharger`), and the engine adds them in the reference model's order, so the LP is the same.
 - Parameter files keep the reference model's layout (`tech`, `capex`, `finance`, `subsidies`, ...), split by owner.
-  A value not from a source is written with "TO CHECK" in its note (the gas boiler's, the heat storage's and the
-  carbon levy's values).
-- The heat side (buses `heat`, `co2`, `gas`) is added only when the system has a heat block, so a system without one
-  gives the same LP as the reference.
+  A value not from a source is written with "TO CHECK" in its note (the gas boiler's, the heat pump's, the heat
+  storage's, the external CO2's and the carbon levy's values).
+- The heat side (buses `heat`, `co2`, `gas`) is added only when the system has a heat or CO2 source, so a system
+  without one gives the same LP as the reference.
 - Which block needs which is in `common/blocks.json` (`fixed`, `needs`, `needs_one_of`, `follows`; `system/README.md`).

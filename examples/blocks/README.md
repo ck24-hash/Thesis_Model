@@ -2,7 +2,7 @@
 
 Each block reads its own input file; a block with several curves keeps them in the same file. The data here is
 synthetic: the electricity curves are cut from `examples/battery` (the reference model's example workbook), the heat,
-CO2, gas price and outside temperature curves are made from formulas (below). The numbers mean nothing, no real site is behind them.
+CO2, gas price, outside temperature and CO2 price curves are made from formulas (below). The numbers mean nothing, no real site is behind them.
 
 ## What every input file looks like
 
@@ -19,26 +19,29 @@ CO2, gas price and outside temperature curves are made from formulas (below). Th
 
 | Block | Input file: column (default name), unit | Settings in the case file | Parameter files |
 |---|---|---|---|
-| Greenhouse demand (`greenhouse`) | site electricity load (`Loadcurve (kW)`), kW average per step, required; heat demand (`Heat demand (kW)`), kW, and CO2 demand (`CO2 demand (kg/h)`), kg/h, needed with a heat block | `co2_mode` (`required` or `by_product`), with a heat block | `elements/greenhouse/params`: penalties for unmet heat and CO2 (solver devices) |
+| Greenhouse demand (`greenhouse`) | site electricity load (`Loadcurve (kW)`), kW average per step, required; heat demand (`Heat demand (kW)`), kW, needed with a heat source (gas boiler, heat pump); CO2 demand (`CO2 demand (kg/h)`), kg/h, needed with a CO2 source (gas boiler, external CO2) | `co2_mode` (`required` or `by_product`), with a CO2 source (always `required` with external CO2) | `elements/greenhouse/params`: penalties for unmet heat and CO2 (solver devices) |
 | Voltiris (`voltiris`) | yield of one module (`Production voltiron (W)`), W per module; required | `modules` (count) | `elements/voltiris/params`: module Wp |
 | Existing PV (`existing_pv`) | output of the PV already on site (`Current PV feed-in (kW)`), kW; required | none | none (not sized, cost sunk) |
 | Grid (`grid`) | day-ahead price (`Day ahead kWh`), EUR/kWh; only for tariffs priced on it (NL, FR) | `import_max_kw`, `export_max_kw` (missing = automatic), `regime` (`{"auto": true}` or `{"auto": false, "manual": "B"}`); the case's `market` | `elements/grid/params/tariffs/<country>/<region>/<utility>_<year>.json` and the country and region files |
-| Battery (`battery`) | none | `sizing`: `objective` (`profit`, `payback`, `custom`), `sweep_kwh`, `custom_kwh`, `fine_grid_kwh`, `fine_window_kwh`, `cap_at_subsidy_size` | `elements/battery/params`: technology, the ancillary reserve per country |
-| Gas supply (`gas_supply`) | gas price (`Gas price (EUR/kWh)`), EUR per kWh of gas (LHV), any step; not needed when a fixed price is set (`gas.price_per_kwh`) | none | `elements/gas_supply/params`: emission factor, carbon levy, fixed price |
-| Heat storage (`thermal_storage`) | outside temperature (`Outside temperature (C)`), °C, any step; only for the dynamic heat loss | `sizing`: `objective` (`profit`, `payback`, `custom`), `sizes_kwh` (empty = automatic), `custom_kwh` | `elements/thermal_storage/params`: efficiencies, power per kWh, heat loss model |
-| Gas boiler (`ng_boiler`) | none | `sizing`: `objective` (`lifetime_cost`, `smallest`, `custom`), `sizes_kw` (empty = automatic), `custom_kw` | `elements/ng_boiler/params`: efficiency, usable share of the flue gas CO2 |
+| Battery (`battery`) | none | `sizing`: `objective` (`custom` with `custom_kwh`: fixed; else sized together, and `profit` or `payback` is the objective of the battery check), `sweep_kwh`, `fine_grid_kwh`, `fine_window_kwh` (the check's sizes; without the cap the largest is also the joint sizing's limit), `cap_at_subsidy_size` | `elements/battery/params`: technology, the ancillary reserve per country |
+| Gas supply (`gas_supply`) | gas price (`Gas price (EUR/kWh)`), EUR per kWh of gas (LHV), any regular step (hourly, daily); not needed when a fixed price is set (`gas.price_per_kwh`) | none | `elements/gas_supply/params`: emission factor, carbon levy, fixed price |
+| Heat storage (`thermal_storage`) | outside temperature (`Outside temperature (C)`), °C, any regular step; only for the dynamic heat loss | `sizing`: `objective` (`joint`: sized together; `custom` with `custom_kwh`: fixed, 0 = no tank) | `elements/thermal_storage/params`: efficiencies, power per kWh, heat loss model |
+| External CO2 (`external_co2`) | CO2 price (`CO2 price (EUR/kg)`), EUR per kg, any regular step (hourly, daily); not needed when a fixed price is set | none | `elements/external_co2/params`: fixed price, fixed cost per year, most CO2 per hour |
+| Gas boiler (`ng_boiler`) | none | `sizing`: `objective` (`joint`: sized together; `custom` with `custom_kw`: fixed, 0 = not installed) | `elements/ng_boiler/params`: efficiency, usable share of the flue gas CO2 |
+| Heat pump (`heat_pump`) | outside temperature (`Outside temperature (C)`), °C, any regular step; only for the dynamic COP | `sizing`: `objective` (`joint`: sized together; `custom` with `custom_kw`: fixed) | `elements/heat_pump/params`: supply temperature, COP mode, nominal COP, reference outside temperature |
 
 The general items need no input file; their values are parameter files, changed for one run with the overrides:
 
 | General item | Setting in the case file | Parameter files |
 |---|---|---|
 | Market | `market` (country, region, utility, year); sets the run's currency | the grid's tariff files |
-| Commercial | `general.commercial.business_model` (`direct_sales` or `eaas`) | `general/commercial/params`: business models (EaaS price), Voltiris price per Wp, battery price tiers and replacements, boiler price and O&M, heat storage price and O&M, PV, battery, boiler and heat storage lives, ancillary revenue rate per country |
+| Commercial | `general.commercial.business_model` (`direct_sales` or `eaas`) | `general/commercial/params`: business models (EaaS price), Voltiris price per Wp, battery price tiers and replacements, boiler price and O&M, heat pump price and O&M, heat storage price and O&M, PV, battery, boiler, heat pump and heat storage lives, ancillary revenue rate per country |
 | Subsidies | none | `general/subsidies/params`: Voltiris and battery subsidies per country and region |
 | EMS | none | `general/ems/params`: fixed cost, hardware, fees |
 
 Greenhouse and grid are required in every system. Voltiris and existing PV must run and are added together as one PV
-generator behind the site's meter, as in the reference model. The gas boiler needs the gas supply, the heat storage the gas boiler. The blocks not listed here are not built yet
+generator behind the site's meter, as in the reference model. The gas boiler needs the gas supply, the heat storage a
+heat source (the gas boiler or the heat pump). The blocks not listed here are not built yet
 (`common/blocks.json`, `PLAN.md`).
 
 ## The example files
@@ -50,14 +53,16 @@ generator behind the site's meter, as in the reference model. The gas boiler nee
 | `existing_pv_2026_hourly.xlsx` | existing_pv | hourly, 8,760 rows | `Current PV feed-in (kW)`: the Voltiris yield of 150 modules, averaged per hour (synthetic), about 24 MWh a year; no `Minute` column |
 | `grid_day_ahead_2026.xlsx` | grid | 15 min, 35,040 rows | `Day ahead kWh`, EUR/kWh |
 | `gas_price_2026_daily.xlsx` | gas_supply | daily, 365 rows (Hour 0) | `Gas price (EUR/kWh)`, 0.025 to 0.045 |
-| `outside_temperature_2026_hourly.xlsx` | thermal_storage | hourly, 8,760 rows | `Outside temperature (C)`, -3 to 23 °C, mean 10 °C |
+| `outside_temperature_2026_hourly.xlsx` | thermal_storage, heat_pump | hourly, 8,760 rows | `Outside temperature (C)`, -3 to 23 °C, mean 10 °C |
+| `co2_price_2026_daily.xlsx` | external_co2 | daily, 365 rows (Hour 0) | `CO2 price (EUR/kg)`, 0.07 (summer) to 0.13 (winter) |
 
-The synthetic heat, CO2 and gas curves (d = day of the year, h = hour, y = the yield of one Voltiris module):
+The synthetic curves (d = day of the year, h = hour, y = the yield of one Voltiris module):
 
     heat_kW     = max(0, 1200 x (0.55 + 0.45 cos(2 pi (d - 15) / 365)) x (1 + 0.25 cos(2 pi (h - 3) / 24)) - 150)
     CO2_kg/h    = 80 x sqrt(y / max y) x (0.4 + 0.6 x (0.5 + 0.5 cos(2 pi (d - 15) / 365)))
     gas EUR/kWh = 0.035 + 0.010 cos(2 pi (d - 15) / 365)
     T_out °C    = 10 - 9 cos(2 pi (d - 15) / 365) + 4 cos(2 pi (h - 15) / 24)
+    CO2 EUR/kg  = 0.10 + 0.03 cos(2 pi (d - 15) / 365)
 
 CO2 is dosed in daylight only (yield above zero), more in winter.
 
@@ -71,7 +76,9 @@ The battery has no file: its example is the `battery` entry of the case files.
 | `case_blocks_CH_existing_pv.json` | CH, SIG | the same, plus existing PV from the hourly file |
 | `case_blocks_CH_boiler.json` | CH, SIG | greenhouse (CO2 must be met), grid, gas supply (daily file), gas boiler (automatic sizes) |
 | `case_blocks_CH_boiler_storage.json` | CH, SIG | greenhouse, Voltiris (500 modules), grid, gas supply, gas boiler, heat storage with the dynamic heat loss (outside temperature file) |
-| `case_blocks_CH_boiler_battery.json` | CH, SIG | `case_blocks_CH.json` plus gas supply and gas boiler: the boiler study, then the battery study |
+| `case_blocks_CH_boiler_co2.json` | CH, SIG | greenhouse, Voltiris, grid, gas supply, gas boiler, external CO2 (daily price): buy CO2 or burn gas |
+| `case_blocks_CH_heat_pump.json` | CH, SIG | greenhouse (CO2 must be met), Voltiris, grid (automatic limits), gas supply, gas boiler, heat pump with the dynamic COP (outside temperature file), sized together. With the example prices (gas about 0.032, grid about 0.16 CHF/kWh) the heat pump's heat costs more than the boiler's almost every hour and the boiler runs for CO2 anyway, so the joint sizing gives it 0 kW; a higher gas price or a carbon levy changes that |
+| `case_blocks_CH_boiler_battery.json` | CH, SIG | `case_blocks_CH.json` plus gas supply and gas boiler: both sized together |
 
 The first three hold the same data as `examples/battery` and give the same results as those cases.
 

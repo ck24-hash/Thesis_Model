@@ -114,7 +114,7 @@ def preview(case: dict) -> dict:
         p = s.import_price(regime)
         prices[regime] = {"mean": p.mean(), "min": p.min(), "max": p.max(),
                           "weighted": (p * st.load).sum() / st.load.sum()}
-    ref = 100.0
+    per = 100.0   # the figures per 100 kWh bought
     return clean({
         "currency": s.currency,
         "site": {"load_mwh": st.yearly_load_kwh / 1000, "load_peak_kw": st.load.max(), "modules": st.modules,
@@ -125,10 +125,10 @@ def preview(case: dict) -> dict:
         "battery": {"c_rate": b.c_rate, "soc_min": b.soc_min, "soc_max": b.soc_max,
                     "charge_efficiency": b.eff_store, "discharge_efficiency": b.eff_dispatch, "round_trip": b.eta2,
                     "self_discharge_per_day": b.self_discharge_per_hour * 24,
-                    "per_100_kwh": {"window_kwh": b.soc_window_kwh(ref), "power_kw": b.power_kw(ref),
-                                    "reserved_kwh": b.reserved_kwh(ref), "reserved_kw": b.reserved_kw(ref),
-                                    "dispatch_kwh": b.dispatch_kwh(ref), "dispatch_kw": b.dispatch_kw(ref),
-                                    "ancillary_revenue": s.ancillary_revenue(ref)}},
+                    "per_100_kwh": {"window_kwh": b.soc_window_kwh(per), "power_kw": b.power_kw(per),
+                                    "reserved_kwh": b.reserved_kwh(per), "reserved_kw": b.reserved_kw(per),
+                                    "dispatch_kwh": b.dispatch_kwh(per), "dispatch_kw": b.dispatch_kw(per),
+                                    "ancillary_revenue": s.ancillary_revenue(per)}},
         "ancillary": {"enabled": _ancillary_on(s), "rate_per_kw_year": s.ancillary.get("rate_per_kw_year", 0),
                       "mode": b.reserve_mode, "frac": b.reserve_frac, "kwh": b.reserve_kwh},
         "money": {"battery_tiers": s.capex["battery_tiers_per_kwh"],
@@ -136,7 +136,7 @@ def preview(case: dict) -> dict:
                                        for k in (100, 500, 1000, 2000)},
                   "ems_hardware": s.ems.capex, "ems_fixed_per_year": s.ems.fixed_per_year,
                   "subsidy_mode": s.subsidies["battery"]["mode"], "subsidy_frac": s.subsidies["battery"].get("frac"),
-                  "subsidy_threshold_kwh": s.subsidy_threshold_kwh, "price_after_subsidy_100": s.battery_net_capex(ref),
+                  "subsidy_threshold_kwh": s.subsidy_threshold_kwh, "price_after_subsidy_100": s.battery_net_capex(per),
                   "pv_subsidy_mode": s.subsidies["pv"]["mode"], "pv_subsidy_frac": s.subsidies["pv"].get("frac"),
                   "pv_capex": capex_block.pv_gross(st.modules, s.module_wp, s.capex),
                   "battery_life_yr": s.finance["battery_life_yr"], "pv_life_yr": s.finance["pv_life_yr"]},
@@ -198,4 +198,4 @@ def _results_for_page(out: dict, s: Setup, sizing_settings: dict | None, elec: d
               "dispatch_kwh_per_kwh": s.battery.dispatch_kwh(1.0), "ancillary_on": _ancillary_on(s)}
     summary = {k: v for k, v in out["summary"].items() if k != "sweep"}
     return results_for_page(ID, battery=battery_page(out, s.dt, choice), summary=summary,
-                            electricity=electricity_page(elec), system=system_page("sequential", cost))
+                            electricity=electricity_page(elec), system=system_page("reference", cost))

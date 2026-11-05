@@ -1,5 +1,6 @@
-"""Run case files with the reference model (elements/battery_reference) and with the blocks (system/), and compare
-the summary and every result table.
+"""Run case files with the reference model (elements/battery_reference) and with the blocks' battery sweep
+(elements/battery/study.py, the run's battery check after the joint sizing), and compare the summary and every result
+table.
 
     python system/compare.py examples/battery/case_example_CH.json examples/blocks/case_blocks_CH.json [more]
 
@@ -25,6 +26,7 @@ import run_case as reference  # noqa: E402  (elements/battery_reference/run_case
 from engine import inputs, pipeline  # noqa: E402  (the reference's engine)
 from engine.setup import Setup  # noqa: E402
 
+from elements.battery import study as battery_study  # noqa: E402
 from system import run_case as blocks  # noqa: E402
 from system import setup  # noqa: E402
 
@@ -82,6 +84,17 @@ def differences(ref: dict, new: dict, limit: int = 10) -> list[str]:
     return out
 
 
+def sweep(case: dict, case_dir: Path, tag: str) -> dict:
+    """The blocks' battery study with its size sweep: the reference model's rule, which the run uses as its battery
+    check after the joint sizing (system/battery_check.py)."""
+    case = setup.as_system_case(case)
+    s = setup.build(case, case_dir)
+    regime = (case["blocks"].get("grid") or {}).get("regime") or {}
+    return battery_study.run(s, regime_auto=regime.get("auto", True), regime_manual=regime.get("manual"),
+                             sizing_settings=(case["blocks"].get("battery") or {}).get("sizing"), tag=tag,
+                             log=lambda *a, **k: None)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Compare the blocks with the reference battery model.")
     ap.add_argument("cases", type=Path, nargs="+", help="case files (JSON), either format")
@@ -93,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         case = json.loads(path.read_text(encoding="utf-8"))
         tag = case.get("tag", path.stem)
         ref = run_reference(case, path.parent, tag)
-        new = blocks.run(case, path.parent, tag, log=lambda *a, **k: None, sizing="sequential")[0]["battery"]
+        new = sweep(case, path.parent, tag)
         diffs = differences(ref, new)
         failed += bool(diffs)
         print(f"{path.name}: {'identical' if not diffs else f'{len(diffs)} differences'}", flush=True)

@@ -7,7 +7,10 @@ elements/battery_reference engine/pipeline.py and blocks/finance.py), in the ref
 4. the chosen size's year under its regime, its bill, SC/SS and value split;
 5. Voltiris's own saving, battery cost over the PV life (with the EMS capex), and the payback table.
 
-Returns a summary dict (the reference model's summary keys) and the tables behind it.
+Returns a summary dict (the reference model's summary keys) and the tables behind it. With a heat pump the site's
+load is the greenhouse load + the heat pump's draw (the no-battery year's), the no-battery regime follows that year's
+DUP (regime_with_heat_pump), and the battery's value has a heat side: the gas and CO2 bought it saves by changing when
+the heat pump runs.
 """
 from __future__ import annotations
 
@@ -17,13 +20,41 @@ import pandas as pd
 
 from common.money import payback_years
 from elements.battery import sizing
-from system import dispatch, flows
+from system import costs, dispatch, flows
 from system.setup import System
 
 
 def choose_regime(s: System, auto: bool = True, manual: str | None = None) -> tuple[str, float | None]:
     """The no-battery regime: from the DUP of what is drawn from the grid with all PV and no battery."""
     return s.grid.choose_regime((s.load - s.pv_total).clip(lower=0), auto, manual)
+
+
+def regime_with_heat_pump(s: System, base: str, res: pd.DataFrame, heat: pd.DataFrame, log=print):
+    """The year without battery with a heat pump, whose draw is not in the starting regime's DUP: when the solved
+    year's DUP lands in the other regime, it is solved again with the DUP held in each regime and the cheaper kept
+    (grid bill + heat side), as the joint sizing does. Returns (regime, dispatch, heat dispatch)."""
+    t = s.grid.tariff
+    dup = t.dup(res["grid_import"], s.grid.hp_mask.reindex(res.index), s.dt)
+    if not t.rule or t.regime_of(dup) == base:
+        return base, res, heat
+    other = t.other_regime(base)
+    log(f"  DUP with the heat pump {dup:,.0f} h: solved again with the DUP held in regime {base} and in {other}")
+    best = None
+    for regime in (base, other):
+        n = dispatch.solve(s, regime, dup_lock=regime)
+        if n is None:
+            continue
+        r, h = dispatch.results(n, s), dispatch.heat_results(n, s)
+        del n
+        gc.collect()
+        cost = flows.bill(r["grid_import"], r["grid_export"], s, regime)["total"] + costs.heat_running_cost(h, s)
+        log(f"    regime {regime}: {cost:,.0f}/yr")
+        if best is None or cost < best[0]:
+            best = (cost, regime, r, h)
+    if best is None:
+        raise RuntimeError("The no-battery optimisation failed with the DUP held in either regime.")
+    log(f"  -> regime {best[1]} without battery")
+    return best[1], best[2], best[3]
 
 
 def payback_rows(*, eaas: bool, pv_modules: int, eaas_price_per_mwh: float | None,
@@ -76,19 +107,24 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     if n_nb is None:
         raise RuntimeError("The no-battery optimisation failed.")
     res_nb = dispatch.results(n_nb, s)
+    heat_nb = dispatch.heat_results(n_nb, s) if s.heat_pump is not None else None
     del n_nb
     gc.collect()
+    if s.heat_pump is not None:   # its draw moves the DUP: the regime is known once the year is solved
+        base, res_nb, heat_nb = regime_with_heat_pump(s, base, res_nb, heat_nb, log)
+    load = res_nb["load"]   # the site's load: with a heat pump, its draw in the year without battery
     e_nb = flows.economics(res_nb, s, base)
     sc_nb = flows.sc_ss(res_nb, s)
     monthly_nb = flows.monthly_breakdown(res_nb, sc_nb, s, base)
-    baseline_cost = (s.load * s.import_price(base) * dt).sum()
-    baseline_demand = t.yearly_capacity_charge(s.load, base)
+    baseline_cost = (load * s.import_price(base) * dt).sum()
+    baseline_demand = t.yearly_capacity_charge(load, base)
     baseline_op_cost = e_nb["total_cost"]
+    heat_baseline = costs.heat_running_cost(heat_nb, s) if heat_nb is not None else None
 
     # 3. sizing
     log("\n=== BATTERY SIZING SWEEP ===")
     solved: dict = {}   # every size's dispatch from the sweep, so the chosen size is not solved again
-    table = sizing.sweep(s, base, baseline_op_cost, cfg, log=log, dispatches=solved)
+    table = sizing.sweep(s, base, baseline_op_cost, cfg, log=log, dispatches=solved, heat_baseline=heat_baseline)
     size = sizing.choose(table, cfg["objective"], cfg["custom_kwh"], c.battery_life_yr)
     regime = table.loc[size, "regime"]
     dup_lock = table.loc[size, "dup_lock"] or None
@@ -96,11 +132,13 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
 
     # 4. the chosen size: its dispatch from the sweep (the same solve), or solved again if it is missing
     res_b = solved.get((size, regime, dup_lock or ""))
+    heat_b = solved.get(("heat", size, regime, dup_lock or ""))
     if res_b is None:
         n_b = dispatch.solve(s, regime, battery_kwh=size, dup_lock=dup_lock)
         if n_b is None:
             raise RuntimeError(f"The optimisation with {size} kWh failed.")
         res_b = dispatch.results(n_b, s)
+        heat_b = dispatch.heat_results(n_b, s) if s.heat_pump is not None else None
         del n_b
     solved.clear()
     gc.collect()
@@ -122,7 +160,8 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     peak_shaving = peak_demand + regime_switch
     ancillary = s.ancillary_revenue(size)
     ems = s.ems.fees(ancillary, energy_savings + peak_shaving)
-    net_savings = energy_savings + peak_shaving + ancillary - ems["total"]
+    heat_saving = heat_baseline - costs.heat_running_cost(heat_b, s) if heat_b is not None else 0.0
+    net_savings = energy_savings + peak_shaving + heat_saving + ancillary - ems["total"]
     investment = net_capex + s.ems.capex
     payback = payback_years(investment, net_savings)
     cycles = (res_b["battery_power"].clip(lower=0).abs() * dt).sum() / size
@@ -132,13 +171,13 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
     module_wp = s.voltiris.module_wp if s.voltiris else 0.0
     pv_capex = 0.0 if s.bm.eaas else c.pv_capex(s.modules, module_wp)
     existing = s.existing if s.existing is not None else pd.Series(0.0, index=s.index)
-    imp_exist = (s.load - existing).clip(lower=0)
-    exp_exist = (existing - s.load).clip(lower=0)
+    imp_exist = (load - existing).clip(lower=0)
+    exp_exist = (existing - load).clip(lower=0)
     dup_exist = t.dup(imp_exist, s.grid.hp_mask, dt)
     regime_exist = t.regime_of(dup_exist) if t.rule else base   # FR: the TURPE option the case chose
     bill_exist = flows.bill(imp_exist, exp_exist, s, regime_exist, volt=False)["total"]
     pv_saving = bill_exist - e_nb["total_cost"] if s.modules > 0 else 0.0
-    bat_saving = e_nb["total_cost"] - e_b["total_cost"] + ancillary - ems["total"]
+    bat_saving = e_nb["total_cost"] - e_b["total_cost"] + heat_saving + ancillary - ems["total"]
     pv_capex_net = s.subsidies.pv_net(pv_capex, s.modules, module_wp, c.capex["pv_per_wp"])
     repl = c.battery_replacement_cost(size, life_pv)
     bat_no_sub = gross + repl + s.ems.capex
@@ -191,10 +230,12 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         "sweep": table.reset_index()[["size", "bat_value", "payback", "lifetime_profit", "regime"]].to_dict("records"),
     }
     bills = pd.DataFrame({
-        "No PV": flows.bill(s.load, None, s, base),
+        "No PV": flows.bill(load, None, s, base),
         "PV only": flows.bill(res_nb["grid_import"], res_nb["grid_export"], s, base),
         f"PV + {size} kWh": flows.bill(res_b["grid_import"], res_b["grid_export"], s, regime),
     })
+    if heat_b is not None:
+        summary["battery_heat_saving_yr"] = heat_saving
     return {
         "summary": summary,
         "sweep": table,
@@ -204,5 +245,7 @@ def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None
         "payback": pd.DataFrame(payback_table),
         "dispatch": res_b,
         "dispatch_no_battery": res_nb,
+        "heat_dispatch": heat_b,
+        "heat_dispatch_no_battery": heat_nb,
         "baseline": {"cost_no_pv": baseline_cost, "demand_no_pv": baseline_demand, "dup_no_battery": dup_no_battery},
     }

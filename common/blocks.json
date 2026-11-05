@@ -116,7 +116,8 @@
     {
       "id": "heat_pump",
       "name": "Heat pump",
-      "status": "planned",
+      "status": "model",
+      "status_note": "elements/heat_pump: heat from electricity and the outside air, COP constant or from the outside temperature",
       "in": [
         "electricity",
         "low-temperature heat"
@@ -124,7 +125,7 @@
       "out": [
         "heat"
       ],
-      "role": "heat from ambient air (S2) or data center heat (S3, S4)"
+      "role": "heat from electricity and the outside air (S2); from data center heat later (S3, S4)"
     },
     {
       "id": "thermal_storage",
@@ -175,12 +176,13 @@
     {
       "id": "external_co2",
       "name": "External liquid CO2",
-      "status": "planned",
+      "status": "model",
       "in": [],
       "out": [
         "co2"
       ],
-      "role": "bought CO2"
+      "role": "bought liquid CO2: the optimisation buys it or burns gas for CO2, whichever costs less",
+      "status_note": "elements/external_co2: CO2 price from a file or fixed"
     },
     {
       "id": "aux_heater",

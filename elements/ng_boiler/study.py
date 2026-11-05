@@ -1,15 +1,7 @@
-"""The gas boiler study: the boiler block on its own, sized with the rest of the system fixed (no battery while it
-runs; nothing links heat and electricity yet, so the battery would not change it). In the battery study's order:
-
-1. the regime (the electricity side runs in every solve), and the heat the boiler must give at its busiest step;
-2. the size sweep (sizing.py) and the chosen size;
-3. the chosen size's year: heat, CO2 and gas per step, per month, and the summary.
-
-The chosen size is then fixed (s.boiler_kw) for the other studies.
+"""The gas boiler's year at its size (the joint sizing's, or fixed in the case), the rest of the system at its sizes
+(no battery while it runs): heat, CO2 and gas per step, per month, and the summary.
 """
 from __future__ import annotations
-
-import gc
 
 import pandas as pd
 
@@ -28,6 +20,7 @@ def monthly(res: pd.DataFrame, s: System) -> pd.DataFrame:
         rows.append({
             "Heat demand (MWh)": r["heat_demand"].sum() * dt / 1000,
             "Boiler heat (MWh)": r["boiler_heat"].sum() * dt / 1000,
+            **({"Heat pump heat (MWh)": r["hp_heat"].sum() * dt / 1000} if s.heat_pump is not None else {}),
             "Heat released (MWh)": r["heat_release"].sum() * dt / 1000,
             "Heat unmet (MWh)": r["heat_unmet"].sum() * dt / 1000,
             "Gas (MWh)": r["gas"].sum() * dt / 1000,
@@ -36,57 +29,47 @@ def monthly(res: pd.DataFrame, s: System) -> pd.DataFrame:
             "CO2 supplied (t)": r["co2_supplied"].sum() * dt / 1000,
             "CO2 vented (t)": r["co2_vented"].sum() * dt / 1000,
             "CO2 emitted (t)": r["co2_emitted"].sum() * dt / 1000,
+            "CO2 bought (t)": r["co2_bought"].sum() * dt / 1000,
         })
     return pd.DataFrame(rows, index=MONTHS)
 
 
-def run(s: System, *, regime_auto: bool = True, regime_manual: str | None = None,
-        sizing_settings: dict | None = None, log=print) -> dict:
+def run(s: System, size: float, regime: str, log=print) -> dict:
+    """The boiler's year at `size` kW of heat under `regime`; sets s.boiler_kw."""
     if s.boiler is None:
         raise ValueError("The boiler study needs a gas boiler block in the system.")
-    cfg = {**sizing.DEFAULTS, **(sizing_settings or {})}
     dt, c, g = s.dt, s.commercial, s.gas
-
-    # 1. regime and the size the demand needs
-    base, _ = dispatch.choose_regime(s, regime_auto, regime_manual)
     need = sizing.needed_kw(s)
-    log("\n=== BOILER SIZING SWEEP ===")
-    log(f"  Heat the boiler must give at its busiest step: {need:,.0f} kW"
-        + ("  (CO2 demand included)" if s.greenhouse.co2_mode == "required" else ""))
-
-    # 2. sweep and choice
+    log(f"  Gas boiler at {size:,.0f} kW (its busiest step alone would need {need:,.0f} kW):", end="")
     solved: dict = {}
-    table = sizing.sweep(s, base, cfg, log=log, dispatches=solved)
-    size = sizing.choose(table, cfg["objective"], cfg["custom_kw"])
-    row = table.loc[size]
-    log(f"\n  Boiler chosen: {size:,.0f} kW" + ("" if row["covers"] else "  (no size tested covers the demand)"))
-    res = solved[size]
-    solved.clear()
-    gc.collect()
+    row = sizing.evaluate_size(s, size, regime, log=log, dispatches=solved)
+    if row is None:
+        raise RuntimeError(f"The year with a {size:,.0f} kW boiler could not be solved.")
+    res = solved.pop(size)
     s.boiler_kw = size
-
-    # 3. the chosen size's year
     heat_demand = res["heat_demand"].sum() * dt / 1000
     co2_demand = res["co2_demand"].sum() * dt / 1000
     co2_supplied = res["co2_supplied"].sum() * dt / 1000
     summary = {
-        "currency": s.currency, "boiler_objective": cfg["objective"],
+        "currency": s.currency, "boiler_objective": "joint",
         "boiler_kw": size, "boiler_needed_kw": need, "boiler_covers": bool(row["covers"]),
         "boiler_efficiency": s.boiler.efficiency, "co2_mode": s.greenhouse.co2_mode,
         "heat_demand_mwh": heat_demand, "boiler_heat_mwh": row["heat_mwh"],
         "heat_released_mwh": row["released_heat_mwh"], "heat_unmet_mwh": row["unmet_heat_mwh"],
         "gas_mwh": row["gas_mwh"], "gas_price_mean_per_kwh": float(g.price.mean()),
         "gas_cost_yr": row["gas_cost"], "co2_levy_yr": row["co2_levy"], "boiler_om_yr": row["om"],
+        "co2_bought_t": row["co2_bought_t"], "co2_bought_cost_yr": row["co2_bought_cost"],
         "boiler_cost_yr": row["yearly_cost"], "boiler_investment": row["investment"],
         "boiler_life_yr": c.boiler_life_yr, "boiler_lifetime_cost": row["lifetime_cost"],
+        # per MWh of heat met; with a heat pump, per MWh the boiler gives (the heat pump meets part of the demand)
         "heat_cost_per_mwh": ((row["investment"] / c.boiler_life_yr + row["yearly_cost"])
-                              / max(heat_demand - row["unmet_heat_mwh"], 1e-9)),
+                              / max(row["heat_mwh"] if s.heat_pump is not None
+                                    else heat_demand - row["unmet_heat_mwh"], 1e-9)),
+        "hp_heat_mwh": res["hp_heat"].sum() * dt / 1000 if s.heat_pump is not None else None,
         "boiler_full_load_h": row["full_load_h"],
         "co2_demand_t": co2_demand, "co2_supplied_t": co2_supplied, "co2_unmet_t": row["unmet_co2_t"],
         "co2_vented_t": res["co2_vented"].sum() * dt / 1000, "co2_emitted_t": res["co2_emitted"].sum() * dt / 1000,
         "co2_self_sufficiency_pct": co2_supplied / co2_demand * 100 if co2_demand > 0 else None,
-        "boiler_sweep": table.reset_index()[["size", "covers", "yearly_cost", "lifetime_cost"]].to_dict("records"),
     }
-    return {"summary": summary, "sweep": table, "monthly": monthly(res, s), "dispatch": res,
-            "choice": {"objective": cfg["objective"], "custom_kw": cfg["custom_kw"], "needed_kw": need,
-                       "life_yr": c.boiler_life_yr}}
+    return {"summary": summary, "monthly": monthly(res, s), "dispatch": res,
+            "choice": {"objective": "joint", "needed_kw": need, "life_yr": c.boiler_life_yr}}

@@ -18,7 +18,7 @@ tariff uses it (NL, FR); a CH case can leave it out.
 
 **Network** (`block.py`): generators `grid_import` (at the regime's price) and `grid_export` (at the export value the
 system gives: the feed-in, or the EaaS value), with limits from the case or automatic (2 x highest load, 1.1 x highest
-PV). The capacity charges are added to the objective, and the DUP lock can hold the year's DUP in one regime.
+PV; with a heat pump the load counts what it would draw to give the whole heat demand, `system/dispatch.py`). The capacity charges are added to the objective, and the DUP lock can hold the year's DUP in one regime.
 
 **Contract rule.** `battery_export` in the tariff file: `any` (CH, NL) or `pv_only` (FR: energy bought at a fixed
 price may not be resold). The system applies it to the battery (`system/dispatch.py`).

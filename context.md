@@ -1,7 +1,7 @@
 # Context for Claude Code: the Voltiris battery model
 
 Read this first. It explains what the project is, how the model works, how to run it, and what was changed or decided
-in the work done with Claude on 23 to 28 Oct 2026. The detailed parameter documentation is in
+in the work done with Claude from 23 Oct to 1 Nov 2026. The detailed parameter documentation is in
 `elements/battery_reference/README.md`; this file does not repeat every number.
 
 ## 1. What this project is
@@ -24,11 +24,26 @@ Since 28 Oct 2026 this model is the frozen reference (`elements/battery_referenc
 `subsidies`, `ems`) and an engine (`system/`) that give the same results; new work goes there (`PLAN.md`, `elements/README.md`, `system/README.md`). This file still describes the
 reference, and its rules (section 5) hold for the blocks too.
 
+State on 1 Nov 2026: the blocks also model the greenhouse's heat and CO2 demand, the gas supply, the gas boiler, an
+air-source heat pump, the heat storage and bought CO2 (`elements/gas_supply`, `ng_boiler`, `heat_pump`,
+`thermal_storage`, `external_co2`; most of their values are TO CHECK). Since 4 Nov the gas boiler, heat pump, heat
+storage and battery are always sized together, for the site's lowest yearly cost (`system/joint.py`; a size fixed in
+the case stays). Every run reports, technical first: each piece of equipment at its size and the year's energy
+(`system/technical.py`), the electricity side (`system/electricity.py`), each technology with and without it
+(`system/effects.py`); then the money (`system/costs.py`); then each size -10 % and +10 % with the operation solved
+again (`system/sensitivity.py`) and the battery sized again by the reference sweep (`system/battery_check.py`). Planned, not built: CHP, SOFC, data center, electric backup heater. The thesis logic is in
+`thesis.md`, the build plan and its status in `PLAN.md`.
+
 ## 2. Folder layout
 
 ```
 README.md                    install, run, where things are
 context.md                   this file
+thesis.md                    the thesis: scope, scenarios, blocks, assumptions register (section 5)
+PLAN.md                      how the blocks are built, and in which order
+OPTIMISATION.md              how the model optimises, with the formulas and the reasoning
+FORMULATION.md               the model as equations
+MODEL_OVERVIEW.md            the blocks, their parameters and the optimisation in plain terms
 elements/battery_reference/  the model, frozen (moved from models/battery on 28 Oct 2026)
   run_case.py                command line: load_case(), setup_from_case(), write_results(), main()
   parameters.py              load(country, region, utility, year, business_model, overrides) -> params dict
@@ -38,10 +53,13 @@ elements/battery_reference/  the model, frozen (moved from models/battery on 28 
   blocks/                    tariffs.py, tech.py, capex.py, subsidies.py, ems.py, business_model.py, finance.py
   params/                    the numbers as JSON (see 4.2)
   tests/test_battery.py      35 tests on invented numbers
-elements/<block>/            the same model split into blocks (elements/README.md)
-system/                      the engine for the blocks, run_case.py and compare.py (system/README.md)
+elements/<block>/            the same model split into blocks, and the heat and CO2 blocks (elements/README.md)
+general/                     commercial, subsidies, EMS: what is not a physical block (general/README.md)
+system/                      the engine for the blocks: sizing, electricity side, yearly cost, with and without each
+                             technology, run_case.py and compare.py (system/README.md)
 interface/                   browser interface for every run type, both battery studies included (section 6)
-common/                      time step conversion, parameters and money, block list, scenario presets
+common/                      time step conversion, parameters and money, block list and links, scenario presets
+examples/blocks/             one input file per block, case files for CH, FR and NL, and a README
 examples/battery/            synthetic input workbook + case files for CH, FR and NL, and a README
 ```
 
@@ -52,6 +70,7 @@ Python 3.12 or 3.13, one virtual environment, run from the project root:
 ```
 pip install -r elements/battery_reference/requirements.txt
 python elements/battery_reference/run_case.py examples/battery/case_example_CH.json     # one study, results next to the case
+python system/run_case.py examples/blocks/case_blocks_CH.json                           # the same with the blocks
 python interface/app.py                                                     # browser interface, http://127.0.0.1:8775
 python -m pytest elements/battery_reference/tests -q                                    # 35 tests, about 1 min
 ```
@@ -194,11 +213,16 @@ battery model (details in `interface/README.md`). It only imports `elements/batt
   `run_case.load_case`, `setup_from_case`, `pipeline.run`, `write_results`, plus read-only previews
   (`parameters.load`, `inputs.from_frame`, `Setup`, `dispatch.grid_limits_kw`, `dispatch.exclusive_steps`,
   `pipeline.choose_regime`). `adapters/system_study.py` runs the blocks.
-- Pages: System (a clickable drawing of the greenhouse and its blocks, presets, the model when two fit, data year),
-  one page per chosen block (its own input file, curves by year, month or week, its technical settings), Input data
-  (every curve together), General (Market, Commercial, Subsidies, EMS), Run (setup check, case file, live log and
-  progress, JSON overrides), Results (why this size, value split, sweep, with and without battery, bills by component,
-  the whole year per day, dispatch per week, monthly tables, payback, downloads).
+- Five sections, tabs along the top: System (a clickable drawing of the greenhouse and its blocks, presets, the model
+  when two fit, the sensitivity switch, data year), with one page per chosen block in the side menu (its own
+  input file, curves by year, month or week, its technical settings), Input data (every curve together), General
+  (Market, Commercial, Subsidies, EMS, in the side menu), Run (setup check, case file, live log and progress, JSON
+  overrides), Results in tabs: System (technical: each size and how hard it works, the year's energy, what each
+  technology changes; financial: what each technology is worth, the site's yearly cost; the sensitivity of the sizes
+  and the battery check), Electricity, the battery's tabs (Battery, Bills and payback, Over the year, Month by month), Gas
+  boiler, Heat pump, Heat storage, CO2, Files; a tab shows only when the run has that study.
+- Parameter fields show the value in use; "Defaults" in a card or group title puts it back to the parameter files'
+  values.
 - The ancillary switch is on by default; off writes the overrides of 4.6 into the case file, and a case with those
   overrides reopens with the switch off.
 - The page writes system cases (one input file per block). For this model a run writes the blocks' inputs as one
@@ -241,7 +265,7 @@ Example studies went from about 41 to 24 s (CH), 48 to 23 s (FR) and 41 to 25 s 
   optimum, but slower on FR, where the one-meter coefficients also change.
 - A lean LP without the PyPSA layer: saves about 3 s per solve; a rewrite that needs full re-checking.
 
-## 8. History of the work with Claude (23 to 28 Oct 2026)
+## 8. History of the work with Claude (23 Oct to 1 Nov 2026)
 
 - **Cleanup**: kept only the battery model. Removed the other Pre-feasibility models and their launcher:
   `models/clean` (consumption cleaner), `models/deck` (deck builder), `models/size` (solar-only sizing),
@@ -258,13 +282,23 @@ Example studies went from about 41 to 24 s (CH), 48 to 23 s (FR) and 41 to 25 s 
 - **Run time**: analysis and the two changes of section 7.
 - **Architecture page** of this model (private Claude artifact): https://claude.ai/artifact/AtNqPbUpVHB89F6aWw3sHN
 
+From 28 Oct (details in `PLAN.md`): the split into blocks and one interface (28 Oct); the heat side, the joint sizing,
+the site's yearly cost and the links between blocks (29 Oct); the heat pump, external CO2, each technology with and
+without it (replacing the earlier comparison of two scenarios), the interface's sections as top tabs, `FORMULATION.md`
+and `MODEL_OVERVIEW.md` (1 Nov); sizing always together, the one-at-a-time studies and size lists removed, the
+technical summary, the sensitivity of the sizes and the battery check against the reference sweep (4 Nov).
+
 ## 9. Working on it
 
-- Change numbers in `params/`, not in code. A new utility is a new
-  `params/tariffs/<country>/<region>/<utility>_<year>.json`; a new canton adds `_canton.json` and
-  `params/subsidies/CH/<canton>.json`; a new country adds `_country.json`, `subsidies/<country>/` and
-  `ancillary/<country>.json`.
-- New blocks: put rules that use parameters in `blocks/`, wire them into `engine/setup.py` (built once per study) and
-  use them from the engine; add tests in `tests/test_battery.py`.
-- Before and after any change to the engine, run the three example cases and compare the summaries and tables
-  exactly, and run the tests.
+`elements/battery_reference` stays frozen: new work goes in the blocks.
+
+- Change numbers in the blocks' `params/`, not in code. A new utility is a new
+  `elements/grid/params/tariffs/<country>/<region>/<utility>_<year>.json`; a new canton adds `_canton.json` there and
+  `general/subsidies/params/subsidies/CH/<canton>.json`; a new country adds `_country.json`,
+  `general/subsidies/params/subsidies/<country>/` and `ancillary/<country>.json` in `elements/battery/params` (reserve)
+  and `general/commercial/params` (rate).
+- New blocks: one folder in `elements/` (`PLAN.md` section 3, `elements/README.md`), listed in `system/setup.py`
+  `BLOCKS`, its links in `common/blocks.json`, a rule that joins two blocks in `system/dispatch.py`, tests in
+  `system/tests`.
+- Before and after any change to the engine, run `python system/compare.py` on the example cases (the blocks against
+  the reference, every table to the last digit), and run the tests.

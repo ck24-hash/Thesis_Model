@@ -10,10 +10,10 @@
 <body>
 <header class="top">
   <div class="brand">
-    <button id="navToggle" class="icon-btn" aria-label="Hide or show the menu" title="Hide or show the menu" aria-expanded="true">&#9776;</button>
+    <button id="navToggle" class="icon-btn" aria-label="Hide or show the side menu" title="Hide or show the side menu" aria-expanded="true">&#9776;</button>
     <strong>Greenhouse energy model</strong>
-    <span class="muted">thesis model &middot; choose a scenario or build your own</span>
   </div>
+  <nav class="main-tabs" id="tabs" aria-label="Sections"></nav>
   <div class="top-status" id="topStatus">No case loaded</div>
 </header>
 
@@ -24,7 +24,7 @@
 <!-- SYSTEM ------------------------------------------------------------------------------------------------------ -->
 <section id="step-system" class="step active">
   <h1>System</h1>
-  <p class="lead">Click the parts of the greenhouse to add or remove them, or start from a scenario. Each chosen block gets its own page in the menu; the general items (market, commercial, subsidies, EMS) follow.</p>
+  <p class="lead">Click the parts of the greenhouse to add or remove them, or start from a scenario. Each chosen block gets its own page in the side menu; the general items (market, commercial, subsidies, EMS) are under General.</p>
 
   <div class="card">
     <div class="row">
@@ -60,20 +60,8 @@
       <label class="field grow">Model that runs it <select id="runTypeSelect"></select></label>
     </div>
     <div class="row center" id="sizingRow" hidden>
-      <span>Sizing <span class="info" tabindex="0" data-tip="Together (default): the sized blocks (gas boiler, heat storage, battery) are optimised in one go for the lowest yearly cost of the whole site, so a block that lets another be smaller counts for it. Each block is then left out once to show its value in the system. One at a time: each block's own study sizes it with the others fixed (boiler, then heat storage, then battery). A block with the Custom objective keeps its size either way.">i</span></span>
-      <div class="seg" id="sizingSeg">
-        <label><input type="radio" name="sizing" value="joint" checked><span>Together</span></label>
-        <label><input type="radio" name="sizing" value="sequential"><span>One at a time</span></label>
-      </div>
-    </div>
-  </div>
-  <div class="card" id="compareCard" hidden>
-    <h2>Compare with a scenario B <span class="info" tabindex="0" data-tip="Scenario B is this system without some of its blocks: it can only leave blocks out, not add any. A block that cannot run without one left out goes too (a heat storage without a heat source, the gas supply without the boiler). B is sized and run like A, then the two are compared on the site's yearly cost and key figures. The run takes about twice as long.">i</span></h2>
-    <label class="check"><input type="checkbox" id="cmpOn"> Run a scenario B too: this system without some blocks</label>
-    <div id="cmpBox" hidden>
-      <p class="hint">Tick the blocks scenario B leaves out.</p>
-      <div class="chips" id="cmpBlocks"></div>
-      <div class="callout" id="cmpInfo"></div>
+      <span>Sizing <span class="info" tabindex="0" data-tip="Every ticked block with a size (gas boiler, heat pump, heat storage, battery) is sized together in one optimisation, for the lowest yearly cost of the whole site: a block that lets another be smaller counts for it. A block given a fixed size on its page keeps it. Each block is then left out once to show what it brings.">i</span></span>
+      <span class="muted">every ticked block sized together; the sensitivity and the battery check are chosen on the Run page</span>
     </div>
   </div>
   <div class="nav-buttons" data-nav></div>
@@ -82,7 +70,7 @@
 <!-- GREENHOUSE -------------------------------------------------------------------------------------------------- -->
 <section id="step-greenhouse" class="step">
   <h1>Greenhouse demand</h1>
-  <p class="lead">The site's electricity load, heat demand and CO2 demand, in one input file. Its time steps are the run's. Heat and CO2 demand are used when the system has a block that supplies them (the gas boiler).</p>
+  <p class="lead">The site's electricity load, heat demand and CO2 demand, in one input file. Its time steps are the run's. Heat demand is used when the system has a heat source (the gas boiler, the heat pump), CO2 demand when it has a CO2 source (the gas boiler, the external CO2).</p>
   <div class="callout sys-note" hidden></div>
   <div class="card">
     <h2>CO2 demand <span class="info" tabindex="0" data-tip="Must be met (default): the boiler also runs when only CO2 is needed (summer days), and the heat it then gives beyond the demand is released. By-product: the greenhouse gets the CO2 of the boiler while it runs for heat, up to its demand; the rest of the demand stays unmet and is reported.">i</span></h2>
@@ -173,44 +161,75 @@
     <div id="kp-reserve" class="param-row"></div>
   </div>
   <div class="card">
-    <h2>Sizing <span class="info" tabindex="0" data-tip="Each size in the list is optimised over the whole year, then one is chosen by the objective. The model compares only the sizes it solves.">i</span></h2>
+    <h2>Size <span class="info" tabindex="0" data-tip="Sized by the model: the joint sizing chooses the size with the other ticked blocks, for the lowest yearly cost of the site (its price, replacements and EMS against what it saves). Fixed size: the battery has the size you give.">i</span></h2>
     <div class="row center">
-      <div class="seg" id="objSeg">
-        <label><input type="radio" name="objective" value="profit" checked><span>Lifetime profit</span></label>
-        <label><input type="radio" name="objective" value="payback"><span>Payback</span></label>
-        <label><input type="radio" name="objective" value="custom"><span>Custom size</span></label>
+      <div class="seg" id="zSizeSeg">
+        <label><input type="radio" name="zsize" value="joint" checked><span>Sized by the model</span></label>
+        <label><input type="radio" name="zsize" value="custom"><span>Fixed size</span></label>
       </div>
       <label class="inline-field" id="customRow">size <input id="zCustom" type="number" min="1" value="422" class="num"> kWh</label>
     </div>
-    <p class="hint" id="objHint"></p>
-    <div class="row">
-      <label class="field grow"><span>Sizes to test, kWh <span class="info" tabindex="0" data-tip="Comma separated. Empty = the default list, 100 to 1,500 kWh every 100. Each size takes a few seconds to a minute to solve.">i</span></span> <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
-      <button id="zDefault">Default list</button>
-    </div>
-    <div class="row compact">
-      <span class="muted">or from</span><input id="gFrom" type="number" min="1" value="100" class="num">
-      <span class="muted">to</span><input id="gTo" type="number" min="1" value="1500" class="num">
-      <span class="muted">every</span><input id="gStep" type="number" min="1" value="100" class="num"><span class="muted">kWh, for</span>
-      <select id="gTarget"><option value="zSweep">the sizes to test</option><option value="zFine">the fine grid</option></select>
-      <button id="gReplace">Replace</button><button id="gAdd">Add</button>
-      <span class="hint" id="gInfo"></span>
-    </div>
-    <details>
-      <summary>Fine grid, subsidy cap, and how the size is chosen</summary>
-      <div class="row">
-        <label class="field grow">Fine grid: extra sizes, kWh, tried only near the best size <input id="zFine" placeholder="none, e.g. 350, 375, 400, 425"></label>
-        <label class="field small">Near = within, kWh <input id="zWindow" type="number" min="0" value="250"></label>
-      </div>
-      <label class="check"><input type="checkbox" id="zCap" checked> Stop the list at the subsidised maximum size (with a threshold subsidy, CH's OCAN rule)</label>
-      <ol class="explain">
-        <li><b>Baseline.</b> The year without battery is optimised once; every size is compared with its bill.</li>
-        <li><b>Each size.</b> The whole year is optimised with that battery, knowing the year in advance: bill saving, yearly value (bill saving + ancillary revenue &minus; EMS costs), investment (battery after subsidy + EMS hardware), payback, lifetime profit.</li>
-        <li><b>Swiss regime check.</b> A size whose hours of use (DUP) land in the other regime is solved twice more; the better is kept.</li>
-        <li><b>Choice.</b> The objective picks one size among those tested; the fine grid then refines around it.</li>
-      </ol>
-    </details>
-    <div class="callout" id="zPlan">The setup check shows the exact list the model will solve.</div>
+    <label class="check"><input type="checkbox" id="zCap" checked> At most the subsidised maximum size (with a threshold subsidy, CH's OCAN rule)</label>
+    <div class="callout" id="zPlan">The setup check shows how the battery is sized.</div>
   </div>
+  <div class="card">
+    <h2>Check against the reference sweep <span class="info" tabindex="0" data-tip="After the run, the battery is sized again by the reference battery model's rule (Jesse's sweep): every size of the list is optimised over the year with the other blocks at their sizes, and one is kept by the objective. The results set it against the joint size.">i</span></h2>
+    <p class="hint">Switched on or off on the Run page. Without the subsidy cap, the largest size of this list is also the joint sizing's upper limit.</p>
+    <div id="zCheckBody">
+      <div class="row center">
+        <div class="seg" id="objSeg">
+          <label><input type="radio" name="objective" value="profit" checked><span>Lifetime profit</span></label>
+          <label><input type="radio" name="objective" value="payback"><span>Payback</span></label>
+        </div>
+      </div>
+      <p class="hint" id="objHint"></p>
+      <div class="row">
+        <label class="field grow"><span>Sizes to test, kWh <span class="info" tabindex="0" data-tip="Comma separated. Empty = the default list, 100 to 1,500 kWh every 100. Each size takes a few seconds to a minute to solve. Without the subsidy cap, the largest size is also the joint sizing's upper limit.">i</span></span> <input id="zSweep" placeholder="100, 200, 300, ... 1500"></label>
+        <button id="zDefault">Default list</button>
+      </div>
+      <div class="row compact">
+        <span class="muted">or from</span><input id="gFrom" type="number" min="1" value="100" class="num">
+        <span class="muted">to</span><input id="gTo" type="number" min="1" value="1500" class="num">
+        <span class="muted">every</span><input id="gStep" type="number" min="1" value="100" class="num"><span class="muted">kWh, for</span>
+        <select id="gTarget"><option value="zSweep">the sizes to test</option><option value="zFine">the fine grid</option></select>
+        <button id="gReplace">Replace</button><button id="gAdd">Add</button>
+        <span class="hint" id="gInfo"></span>
+      </div>
+      <details>
+        <summary>Fine grid, and how the sweep chooses</summary>
+        <div class="row">
+          <label class="field grow">Fine grid: extra sizes, kWh, tried only near the best size <input id="zFine" placeholder="none, e.g. 350, 375, 400, 425"></label>
+          <label class="field small">Near = within, kWh <input id="zWindow" type="number" min="0" value="250"></label>
+        </div>
+        <ol class="explain">
+          <li><b>Baseline.</b> The year without battery is optimised once; every size is compared with its bill.</li>
+          <li><b>Each size.</b> The whole year is optimised with that battery: bill saving, yearly value (bill saving + ancillary revenue &minus; EMS costs), investment (battery after subsidy + EMS hardware), payback, lifetime profit.</li>
+          <li><b>Swiss regime check.</b> A size whose hours of use (DUP) land in the other regime is solved twice more; the better is kept.</li>
+          <li><b>Choice.</b> The objective picks one size among those tested; the fine grid then refines around it.</li>
+        </ol>
+      </details>
+    </div>
+  </div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
+<!-- EXTERNAL CO2 ---------------------------------------------------------------------------------------------- -->
+<section id="step-external_co2" class="step">
+  <h1>External CO2</h1>
+  <p class="lead">Liquid CO2 bought and delivered to the greenhouse, at the price of its input file (EUR per kg, any step: a daily or monthly curve over the year is fine) or at a fixed price. At every quarter hour the optimisation buys CO2 or burns gas in the boiler for its flue gas CO2, whichever costs less; with it the CO2 demand is always met.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="two-col">
+    <div class="card">
+      <h2>Supply</h2>
+      <div id="kp-co2" class="param-groups single"></div>
+      <p class="hint">TO CHECK: the defaults are placeholders. The CO2 bought is not counted in the site's emissions (made elsewhere).</p>
+    </div>
+    <div class="card pv-part" hidden>
+      <h2>Buy or burn <span class="muted">from the setup check</span></h2>
+      <div class="tiles" id="pvCo2"></div>
+    </div>
+  </div>
+  <div class="data-card" data-block="external_co2"></div>
   <div class="nav-buttons" data-nav></div>
 </section>
 
@@ -221,7 +240,7 @@
   <div class="callout sys-note" hidden></div>
   <div class="card">
     <h2>Gas</h2>
-    <p class="hint">Each field shows its default. TO CHECK: the levy is a placeholder (0).</p>
+    <p class="hint">TO CHECK: the levy is a placeholder (0).</p>
     <div id="kp-gas" class="param-groups"></div>
   </div>
   <div class="data-card" data-block="gas_supply"></div>
@@ -245,28 +264,54 @@
     </div>
   </div>
   <div class="card">
-    <h2>Sizing <span class="info" tabindex="0" data-tip="As for the battery: each size in the list is optimised over the whole year (the boiler runs to meet the heat and CO2 demand at the lowest cost), then one is chosen by the objective. A size covers the demand when it leaves nothing unmet.">i</span></h2>
+    <h2>Size <span class="info" tabindex="0" data-tip="Sized by the model: the joint sizing chooses the size, in kW of heat, with the other ticked blocks, for the lowest yearly cost of the site; when it is the only heat source it must meet the whole demand. Fixed size: the boiler has the size you give (0: not installed).">i</span></h2>
     <div class="row center">
       <div class="seg" id="bObjSeg">
-        <label><input type="radio" name="bobjective" value="lifetime_cost" checked><span>Lowest lifetime cost</span></label>
-        <label><input type="radio" name="bobjective" value="smallest"><span>Smallest that covers</span></label>
-        <label><input type="radio" name="bobjective" value="custom"><span>Custom size</span></label>
+        <label><input type="radio" name="bobjective" value="joint" checked><span>Sized by the model</span></label>
+        <label><input type="radio" name="bobjective" value="custom"><span>Fixed size</span></label>
       </div>
-      <label class="inline-field" id="bCustomRow">size <input id="bCustom" type="number" min="1" class="num"> kW</label>
+      <label class="inline-field" id="bCustomRow">size <input id="bCustom" type="number" min="0" class="num"> kW of heat</label>
     </div>
-    <p class="hint" id="bObjHint"></p>
-    <div class="row">
-      <label class="field grow"><span>Sizes to test, kW of heat <span class="info" tabindex="0" data-tip="Comma separated. Empty (default) = around the heat the boiler must give at its busiest step: 80, 90, 100, 110, 125 and 150% of it, rounded up to 10 kW.">i</span></span> <input id="bSizes" placeholder="automatic: around the size the demand needs"></label>
-    </div>
-    <div class="callout" id="bPlan">The setup check shows the sizes the model will solve.</div>
+    <div class="callout" id="bPlan">The setup check shows how the boiler is sized.</div>
   </div>
   <div class="nav-buttons" data-nav></div>
 </section>
 
 <!-- HEAT STORAGE ------------------------------------------------------------------------------------------------ -->
+<section id="step-heat_pump" class="step">
+  <h1>Heat pump</h1>
+  <p class="lead">Electricity in, heat out, sized in kW of heat. Without a data center its heat source is the outside air. At each step the model takes heat from whichever source is cheaper: the heat pump's electricity (at the step's price, or PV) or the boiler's gas. Its price, O&amp;M and life are on the Commercial page.</p>
+  <div class="callout sys-note" hidden></div>
+  <div class="callout" id="hpCo2Note" hidden>The heat pump gives no CO2: without the gas boiler or the external CO2, the greenhouse's CO2 demand is not part of this run.</div>
+  <div class="two-col">
+    <div class="card">
+      <h2>Technology</h2>
+      <div id="kp-hp" class="param-groups single"></div>
+      <p class="hint">TO CHECK: the COP values are placeholders until sourced values are given. The supply temperature, 60 &deg;C, is the greenhouse's heating water.</p>
+    </div>
+    <div class="card pv-part" hidden>
+      <h2>In numbers <span class="muted">from the setup check</span></h2>
+      <div class="tiles" id="pvHeatPump"></div>
+    </div>
+  </div>
+  <div class="data-card" data-block="heat_pump"></div>
+  <div class="card">
+    <h2>Size <span class="info" tabindex="0" data-tip="Sized by the model: the joint sizing chooses the size, in kW of heat, with the other sized blocks, for the lowest yearly cost of the site (its price per kW and O&amp;M spread over its life against what it saves). Fixed size: the heat pump has the size you give, its most heat output at any outside temperature.">i</span></h2>
+    <div class="row center">
+      <div class="seg" id="hpSizeSeg">
+        <label><input type="radio" name="hpsize" value="joint" checked><span>Sized by the model</span></label>
+        <label><input type="radio" name="hpsize" value="custom"><span>Fixed size</span></label>
+      </div>
+      <label class="inline-field" id="hpCustomRow">size <input id="hpCustom" type="number" min="1" class="num"> kW of heat</label>
+    </div>
+    <div class="callout" id="hpPlan">The setup check shows what the heat pump draws and what its heat costs.</div>
+  </div>
+  <div class="nav-buttons" data-nav></div>
+</section>
+
 <section id="step-thermal_storage" class="step">
   <h1>Heat storage</h1>
-  <p class="lead">A hot water tank: heat from the boiler is stored and given back to the greenhouse later. Sized in kWh of heat; its price, O&amp;M and life are on the Commercial page. It needs the gas boiler.</p>
+  <p class="lead">A hot water tank: heat from the boiler or the heat pump is stored and given back to the greenhouse later. Sized in kWh of heat; its price, O&amp;M and life are on the Commercial page. It needs a heat source: the gas boiler or the heat pump.</p>
   <div class="callout sys-note" hidden></div>
   <div class="two-col">
     <div class="card">
@@ -281,20 +326,15 @@
   </div>
   <div class="data-card" data-block="thermal_storage"></div>
   <div class="card">
-    <h2>Sizing <span class="info" tabindex="0" data-tip="As for the battery: each size in the list is optimised over the whole year with the boiler at its chosen size, and valued against the year without storage: the gas, carbon levy and boiler O&amp;M it saves, minus its own fixed O&amp;M. Then one size is chosen by the objective.">i</span></h2>
+    <h2>Size <span class="info" tabindex="0" data-tip="Sized by the model: the joint sizing chooses the size, in kWh of heat, with the heat sources, for the lowest yearly cost of the site, so a tank that lets the boiler be smaller counts for it. Fixed size: the tank has the size you give (0: no tank).">i</span></h2>
     <div class="row center">
       <div class="seg" id="sObjSeg">
-        <label><input type="radio" name="sobjective" value="profit" checked><span>Highest lifetime profit</span></label>
-        <label><input type="radio" name="sobjective" value="payback"><span>Shortest payback</span></label>
-        <label><input type="radio" name="sobjective" value="custom"><span>Custom size</span></label>
+        <label><input type="radio" name="sobjective" value="joint" checked><span>Sized by the model</span></label>
+        <label><input type="radio" name="sobjective" value="custom"><span>Fixed size</span></label>
       </div>
-      <label class="inline-field" id="sCustomRow">size <input id="sCustom" type="number" min="1" class="num"> kWh</label>
+      <label class="inline-field" id="sCustomRow">size <input id="sCustom" type="number" min="0" class="num"> kWh of heat</label>
     </div>
-    <p class="hint" id="sObjHint"></p>
-    <div class="row">
-      <label class="field grow"><span>Sizes to test, kWh of heat <span class="info" tabindex="0" data-tip="Comma separated. Empty (default) = 1, 2, 4, 8 and 12 hours of the boiler at full output, rounded up to 100 kWh.">i</span></span> <input id="sSizes" placeholder="automatic: hours of the boiler at full output"></label>
-    </div>
-    <div class="callout" id="sPlan">The setup check shows the sizes the model will solve.</div>
+    <div class="callout" id="sPlan">The setup check shows how the heat storage is sized.</div>
   </div>
   <div class="nav-buttons" data-nav></div>
 </section>
@@ -353,7 +393,7 @@
   </div>
   <div class="card">
     <h2>Prices, lifetimes, revenue <span class="muted" id="curCommercial"></span></h2>
-    <p class="hint">Each field shows its default (from the parameter files). Type a value to change it for this run; &#8634; brings the default back.</p>
+    <p class="hint">The values come from the parameter files; any change holds for this run. &#8634; Defaults puts a group back to the file values.</p>
     <div id="kp-commercial" class="param-groups"></div>
   </div>
   <div class="card pv-part" hidden><h2>In numbers <span class="muted">from the setup check</span></h2><div class="tiles" id="pvMoney"></div></div>
@@ -366,6 +406,11 @@
   <p class="lead">Subsidies on the Voltiris modules and on the battery, per country and region: a percent, a fixed amount, or a percent up to a threshold size (CH's OCAN rule: yearly load / 365 &times; factor).</p>
   <div class="card">
     <h2>Values <span class="muted" id="curSubsidies"></span></h2>
+    <div class="run-options">
+      <label class="switch" id="subPvRow"><input type="checkbox" id="subPv" checked><span></span> Subsidy on the Voltiris modules</label>
+      <label class="switch" id="subBatteryRow"><input type="checkbox" id="subBattery" checked><span></span> Subsidy on the battery</label>
+    </div>
+    <p class="hint">Off: no subsidy for that technology in this run (its share and amount set to 0, written into the case file's overrides). The gas boiler, heat pump and heat storage have no subsidy in the model.</p>
     <div id="kp-subsidies" class="param-groups"></div>
   </div>
   <div class="card pv-part" hidden><h2>In numbers <span class="muted">from the setup check</span></h2><div class="tiles" id="pvSubsidy"></div></div>
@@ -395,6 +440,10 @@
     <div class="row">
       <label class="field">Tag (used in file names) <input id="rTag" value="study"></label>
       <label class="field grow">Output folder <input id="rFolder" placeholder="interface/app_runs/&lt;tag&gt;"></label>
+    </div>
+    <div class="run-options" id="runOptions">
+      <label class="check"><input type="checkbox" id="sSensitivity" checked> Sensitivity: each size &minus;10 % and +10 %, operation only (two years solved per piece of equipment)</label>
+      <label class="check" id="zCheckRow"><input type="checkbox" id="zCheck" checked> Battery check: the battery sized again by the reference sweep (its settings on the Battery page)</label>
     </div>
     <div class="row"><button id="runBtn" class="primary big">Run</button><span class="muted" id="runInfo"></span></div>
     <details><summary>Other overrides (JSON)</summary>
@@ -426,24 +475,40 @@
   </div>
   <div class="tabs res-tabs" id="resTabs" hidden>
     <button data-rtab="system" class="active">System</button>
-    <button data-rtab="compare" class="ct">Comparison</button>
     <button data-rtab="electricity">Electricity</button>
     <button data-rtab="overview" class="bt">Battery</button>
-    <button data-rtab="sizes" class="bt">Battery sizes</button>
     <button data-rtab="bills" class="bt">Bills and payback</button>
     <button data-rtab="time" class="bt">Over the year</button>
     <button data-rtab="months" class="bt">Month by month</button>
     <button data-rtab="boiler" class="ht">Gas boiler</button>
+    <button data-rtab="heat_pump" class="hpt">Heat pump</button>
     <button data-rtab="storage" class="st">Heat storage</button>
+    <button data-rtab="co2" class="xt">CO2</button>
     <button data-rtab="files">Files</button>
   </div>
   <div class="rtab" data-rtab="system" id="res-system" hidden>
     <div class="tiles big" id="yTiles"></div>
     <div class="callout" id="yWhy"></div>
-    <div class="card" id="yJointCard">
-      <h2>Value of each block in the system <span class="muted">joint sizing</span></h2>
-      <div class="table-wrap"><table class="grid" id="yJoint"></table></div>
-      <p class="hint">Each block is left out once and the others are sized again without it. Its value is the site's yearly cost without it minus with it, after its own investment spread over its life.</p>
+    <h2 class="part-title">Technical: what was chosen and what it does</h2>
+    <div class="card" id="yTechCard">
+      <h2>Each piece of equipment at its size</h2>
+      <div class="table-wrap"><table class="grid" id="yEquip"></table></div>
+      <p class="hint">How a size is chosen: the optimisation adds capacity while one more unit saves more per year than it costs per year ("One more unit costs": its investment spread over its life + fixed O&amp;M; the battery's over the PV life with replacements, less its reserve revenue). The last unit is used only in the hours the equipment runs at full size, so few hours at full size mean a size set by the peak; when a block must meet a demand on its own, its size is that demand's peak. Use: full-load hours (energy over the year &divide; size), or full cycles for storage.</p>
+    </div>
+    <div class="card" id="yEnergyCard">
+      <h2>The year's energy at these sizes</h2>
+      <div class="table-wrap"><table class="grid" id="yEnergy"></table></div>
+    </div>
+    <div class="card" id="yImpactCard" hidden>
+      <h2>What each technology changes <span class="muted">with it against without it, the rest sized again</span></h2>
+      <div class="table-wrap"><table class="grid" id="yImpact"></table></div>
+      <p class="hint">Green: better for the site (less import, gas, CO2 or unmet demand; more self-sufficiency). Details in each technology's tab.</p>
+    </div>
+    <h2 class="part-title">Financial: what it costs and what each technology is worth</h2>
+    <div class="card" id="yEffectsCard" hidden>
+      <h2>What each technology is worth <span class="muted">with it against without it, the rest sized again</span></h2>
+      <div class="table-wrap"><table class="grid" id="yEffects"></table></div>
+      <p class="hint">Yearly cost of the site with its investments spread over their lives: &minus; = the technology lowers it. Extra investment: what the system with it invests more. Payback: extra investment &divide; running cost saved.</p>
     </div>
     <div class="card">
       <h2>Yearly cost of the site <span class="muted" id="yCur"></span></h2>
@@ -451,26 +516,35 @@
         <div class="chart tall"><canvas id="yChart"></canvas></div>
         <div class="table-wrap"><table class="grid" id="yTable"></table></div>
       </div>
-      <p class="hint">Running: what it costs to run the site in a year. Investment per year: each investment divided by its life (no discounting), the rule of the studies' lifetime profit and lifetime cost. Existing PV is sunk. Unmet heat or CO2 is counted below, not priced.</p>
+      <p class="hint">Running: what it costs to run the site in a year. Investment per year: each investment divided by its life (no discounting); the battery over the PV life with its replacements. Existing PV is sunk. Unmet heat or CO2 is counted below, not priced.</p>
     </div>
-  </div>
-  <div class="rtab" data-rtab="compare" id="res-compare" hidden>
-    <div class="tiles big" id="cTiles"></div>
-    <div class="callout" id="cWhy"></div>
-    <div class="card">
-      <h2>Yearly cost of the site, A and B <span class="muted" id="cCur"></span></h2>
-      <div class="chart tall"><canvas id="cChart"></canvas></div>
-      <div class="table-wrap"><table class="grid" id="cTable"></table></div>
+    <h2 class="part-title" id="ySensTitle">How much the sizes matter</h2>
+    <div class="card" id="ySensCard" hidden>
+      <h2>Sensitivity: each size &minus;10 % and +10 % <span class="muted">operation only, everything else at its size</span></h2>
+      <div class="table-wrap"><table class="grid" id="ySens"></table></div>
+      <p class="hint" id="ySensHint"></p>
     </div>
-    <div class="card">
-      <h2>Sizes and key figures</h2>
-      <div class="table-wrap"><table class="grid" id="cFigures"></table></div>
-      <p class="hint">The other tabs show scenario A. B's results are in the results workbook (sheet "B site yearly cost").</p>
+    <div class="card" id="yCheckCard" hidden>
+      <h2>Battery check: the joint sizing against the reference sweep</h2>
+      <div class="table-wrap"><table class="grid" id="yCheck"></table></div>
+      <p class="hint" id="yCheckHint"></p>
+      <details><summary>Every size the sweep solved</summary><div class="table-wrap"><table class="grid" id="yCheckSweep"></table></div></details>
     </div>
   </div>
   <div class="rtab" data-rtab="electricity" id="res-electricity" hidden>
     <div class="row center" id="eCaseRow" hidden><div class="seg" id="eCaseSeg"></div></div>
     <div class="tiles big" id="eTiles"></div>
+    <div id="fx-voltiris"></div>
+    <div id="fx-existing_pv"></div>
+    <div class="card" id="ePvCard" hidden>
+      <h2>What the PV saves, instead of buying from the grid</h2>
+      <div class="tiles" id="ePvTiles"></div>
+      <div class="two">
+        <div class="chart"><canvas id="ePvChart"></canvas></div>
+        <div class="table-wrap"><table class="grid" id="ePvTable"></table></div>
+      </div>
+      <p class="hint">Against the same site buying all its load from the grid, without battery: the PV used on site avoids imports at the price of the moment, its exports earn the feed-in, and lower peaks bought lower the capacity charges. The parts add up to the bill without PV minus the bill with it.</p>
+    </div>
     <div class="card">
       <h2>Supply and demand, month by month</h2>
       <div class="chart"><canvas id="eMonthly"></canvas></div>
@@ -512,6 +586,7 @@
     <div class="rtab" data-rtab="overview">
       <div class="tiles big" id="resTiles"></div>
       <div class="callout" id="resWhy"></div>
+      <div id="fx-battery"></div>
       <div class="card">
         <h2>Where the yearly value comes from</h2>
         <div class="two">
@@ -519,15 +594,15 @@
           <div class="table-wrap"><table class="grid" id="resValueTable"></table></div>
         </div>
       </div>
-    </div>
-    <div class="rtab" data-rtab="sizes" hidden>
-      <div class="card">
-        <h2>Yearly value and payback of each size</h2>
-        <div class="chart"><canvas id="resSweep"></canvas></div>
-        <div class="table-wrap"><table class="grid" id="resWhyTable"></table></div>
-        <p class="hint" id="resWhyNote"></p>
-        <details><summary>Every column of the sweep</summary><div class="table-wrap"><table class="grid" id="resSweepTable"></table></div></details>
+    <div class="card" id="zSavCard" hidden>
+      <h2>Electricity from the battery instead of the grid</h2>
+      <div class="tiles" id="zSavTiles"></div>
+      <div class="two">
+        <div class="chart"><canvas id="zSavChart"></canvas></div>
+        <div class="table-wrap"><table class="grid" id="zSavTable"></table></div>
       </div>
+      <p class="hint">Against the same system without battery: what the battery gives the load avoids imports at the price of the moment; what it stored cost the PV it did not export and the grid energy it bought; lower peaks lower the capacity charges. The parts add up to the bill without battery minus the bill with it (ancillary revenue and EMS costs are in the yearly value above).</p>
+    </div>
     </div>
     <div class="rtab" data-rtab="bills" hidden>
       <div class="card">
@@ -568,11 +643,7 @@
   <div class="rtab" data-rtab="boiler" id="res-boiler" hidden>
     <div class="tiles big" id="hTiles"></div>
     <div class="callout" id="hWhy"></div>
-    <div class="card">
-      <h2>Lifetime cost of each size <span class="muted">investment + yearly cost &times; boiler life</span></h2>
-      <div class="chart"><canvas id="hSweep"></canvas></div>
-      <div class="table-wrap"><table class="grid" id="hSweepTable"></table></div>
-    </div>
+    <div id="fx-ng_boiler"></div>
     <div class="card">
       <h2>Heat and CO2 per day with the chosen size</h2>
       <div class="chart"><canvas id="hYear"></canvas></div>
@@ -584,9 +655,48 @@
       <div class="table-wrap"><table class="grid" id="hMonthly"></table></div>
     </div>
   </div>
+  <div class="rtab" data-rtab="heat_pump" id="res-heat_pump" hidden>
+    <div class="tiles big" id="hpTiles"></div>
+    <div class="callout" id="hpWhy"></div>
+    <div id="fx-heat_pump"></div>
+    <div class="card">
+      <h2>Where the heat comes from, month by month</h2>
+      <div class="chart"><canvas id="hpMonthly"></canvas></div>
+      <p class="hint">Bars: the heat given by each source. Line: the greenhouse's heat demand. Heat beyond the demand is released or goes into the tank.</p>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <h2>Electricity drawn and COP, month by month</h2>
+        <div class="chart"><canvas id="hpElec"></canvas></div>
+        <p class="hint">Bars: the heat pump's electricity. Lines (right axis): the mean COP of the month, and the COP of the heat it gave (heat ÷ electricity): it runs more when the COP is high.</p>
+      </div>
+      <div class="card">
+        <h2>COP and outside temperature</h2>
+        <div class="chart"><canvas id="hpCop"></canvas></div>
+        <p class="hint" id="hpCopHint"></p>
+      </div>
+    </div>
+    <div class="card">
+      <h2>One week, hourly</h2>
+      <div class="row slim">
+        <label class="field grow">Week <input type="range" id="hpWeek" min="0" max="51" value="2"></label>
+        <span id="hpWeekLabel" class="muted"></span>
+      </div>
+      <h3>How the heat demand is covered</h3>
+      <div class="chart"><canvas id="hpWeekHeat"></canvas></div>
+      <h3>The heat pump's electricity and COP</h3>
+      <div class="chart short"><canvas id="hpWeekEl"></canvas></div>
+      <p class="hint">The heat pump runs when its heat costs less than the boiler's: when electricity is cheap or PV is there, and when the COP is high.</p>
+    </div>
+    <div class="card">
+      <h2>Month by month</h2>
+      <div class="table-wrap"><table class="grid" id="hpMonthlyTable"></table></div>
+    </div>
+  </div>
   <div class="rtab" data-rtab="storage" id="res-storage" hidden>
     <div class="tiles big" id="sTiles"></div>
     <div class="callout" id="sWhy"></div>
+    <div id="fx-thermal_storage"></div>
     <div class="card">
       <h2>Where the yearly value comes from <span class="muted">against the system without storage</span></h2>
       <div class="two">
@@ -594,15 +704,19 @@
         <div class="table-wrap"><table class="grid" id="sValueTable"></table></div>
       </div>
     </div>
-    <div class="card">
-      <h2>Gas per month, without and with the storage</h2>
-      <div class="chart"><canvas id="sGasMonthly"></canvas></div>
-      <p class="hint">The line is the running cost the storage saves each month (gas, carbon levy, boiler variable O&amp;M).</p>
+    <div class="card" id="sFuelCard" hidden>
+      <h2>Heat from the tank instead of burning gas</h2>
+      <div class="tiles" id="sFuelTiles"></div>
+      <div class="two">
+        <div class="chart"><canvas id="sFuelChart"></canvas></div>
+        <div></div>
+      </div>
+      <p class="hint">The tank's heat replaces gas the boiler would burn at that moment (heat given back ÷ boiler efficiency). Filling it costs the extra gas burnt for it; heat the boiler would release anyway (when it runs for CO2) fills it for free. Gas replaced − extra gas = gas saved, against the system without storage.</p>
     </div>
     <div class="card">
-      <h2>Yearly value and payback of each size</h2>
-      <div class="chart"><canvas id="sSweep"></canvas></div>
-      <div class="table-wrap"><table class="grid" id="sSweepTable"></table></div>
+      <h2 id="sGasTitle">Gas per month, without and with the storage</h2>
+      <div class="chart"><canvas id="sGasMonthly"></canvas></div>
+      <p class="hint" id="sGasHint">The line is the running cost the storage saves each month (gas, carbon levy, boiler variable O&amp;M).</p>
     </div>
     <div class="card">
       <h2>Heat stored per day with the chosen size</h2>
@@ -618,7 +732,7 @@
       </div>
       <h3>How the heat demand is covered</h3>
       <div class="chart"><canvas id="sWeekDemand"></canvas></div>
-      <h3>What the boiler gives</h3>
+      <h3 id="sWeekSourceTitle">What the boiler gives</h3>
       <div class="chart short"><canvas id="sWeekBoiler"></canvas></div>
       <h3>Heat in the tank</h3>
       <div class="chart short"><canvas id="sWeekTank"></canvas></div>
@@ -627,6 +741,33 @@
     <div class="card">
       <h2>Month by month</h2>
       <div class="table-wrap"><table class="grid" id="sMonthly"></table></div>
+    </div>
+  </div>
+  <div class="rtab" data-rtab="co2" id="res-co2" hidden>
+    <div class="tiles big" id="xTiles"></div>
+    <div class="callout" id="xWhy"></div>
+    <div id="fx-external_co2"></div>
+    <div class="card" id="xSavCard" hidden>
+      <h2>CO2 bought instead of burning gas</h2>
+      <div class="tiles" id="xSavTiles"></div>
+      <div class="two">
+        <div class="chart"><canvas id="xSavChart"></canvas></div>
+        <div></div>
+      </div>
+      <p class="hint">Against burning gas only for the CO2 bought (its heat not needed): gas, carbon levy and boiler O&amp;M per kg of usable flue gas CO2, at the price of the moment.</p>
+    </div>
+    <div class="card">
+      <h2>Where the CO2 comes from, month by month</h2>
+      <div class="chart"><canvas id="xMonthly"></canvas></div>
+      <p class="hint">Bars: the greenhouse's CO2 from the boiler's flue gas and bought. Lines (right axis): the price of bought CO2 and what burning gas for CO2 costs per kg when the heat is not needed (gas, carbon levy, boiler O&amp;M).</p>
+    </div>
+    <div class="card">
+      <h2>Per day</h2>
+      <div class="chart"><canvas id="xDaily"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Month by month</h2>
+      <div class="table-wrap"><table class="grid" id="xTable"></table></div>
     </div>
   </div>
   <div class="rtab" data-rtab="files" id="resFilesCard" hidden>

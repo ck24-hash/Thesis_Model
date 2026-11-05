@@ -15,5 +15,9 @@
   "thermal_storage_per_kwh": {"amount": 30, "currency": "EUR"},
   "thermal_storage_per_kwh_note": "heat storage investment per kWh of heat stored, installed. TO CHECK: placeholder",
   "thermal_storage_fixed_om_per_kwh_year": {"amount": 0.3, "currency": "EUR"},
-  "thermal_storage_fixed_om_note": "heat storage fixed operation and maintenance per kWh of size and year. TO CHECK: placeholder"
+  "thermal_storage_fixed_om_note": "heat storage fixed operation and maintenance per kWh of size and year. TO CHECK: placeholder",
+  "heat_pump_per_kw_th": {"amount": 800, "currency": "EUR"},
+  "heat_pump_per_kw_note": "heat pump investment per kW of heat, installed. TO CHECK: placeholder",
+  "heat_pump_fixed_om_per_kw_year": {"amount": 10, "currency": "EUR"},
+  "heat_pump_fixed_om_note": "heat pump fixed operation and maintenance per kW of heat and year. TO CHECK: placeholder"
 }

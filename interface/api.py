@@ -141,6 +141,7 @@ class Run:
         self.results = None
         self.files: dict = {}
         self.done: dict = {}    # sizes solved, per study (block)
+        self.info: dict = {}    # what the page needs to follow the run after a refresh: tag, folder, blocks
 
 
 RUN = Run()
@@ -160,17 +161,32 @@ def _tag(case: dict) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tag) or "study"
 
 
+def _steps(case: dict, run_type: str) -> dict:
+    """The run's optional steps (system/run_case.py): the sensitivity, and the battery check when the battery is sized
+    by the run."""
+    if run_type != "blocks":
+        return {"sensitivity": False, "battery_check": False}
+    from system import battery_check, run_case
+    battery = (case.get("blocks") or {}).get("battery")
+    fixed = battery is not None and ((battery.get("sizing") or {}).get("objective") == "custom")
+    return {"sensitivity": run_case.sensitivity_on(case),
+            "battery_check": battery is not None and not fixed and battery_check.enabled(case)}
+
+
 def start_run(case: dict, output_dir: str | None = None) -> dict:
+    """Starts the run; when one is already going, says so with that run's info (the page follows it)."""
     adapter = adapters.for_case(case)
-    with RUN.lock:
-        if RUN.state == "running":
-            return {"error": "A run is already going."}
-        RUN.__init__()
-        RUN.state, RUN.started, RUN.run_type = "running", time.time(), adapter.ID
     tag = _tag(case)
     out_dir = Path(output_dir) if output_dir else RUNS_DIR / tag
+    with RUN.lock:
+        if RUN.state == "running":
+            return {"error": "A run is already going: its progress is shown.", "running": RUN.info}
+        RUN.__init__()
+        RUN.state, RUN.started, RUN.run_type = "running", time.time(), adapter.ID
+        RUN.info = {"output_dir": str(out_dir), "tag": tag, "run_type": adapter.ID,
+                    "blocks": list(case.get("blocks") or {}), **_steps(case, adapter.ID)}
     threading.Thread(target=_run, args=(adapter, dict(case, tag=tag), out_dir), daemon=True).start()
-    return {"started": True, "output_dir": str(out_dir), "tag": tag, "run_type": adapter.ID}
+    return {"started": True, **RUN.info}
 
 
 def _run(adapter, case: dict, out_dir: Path):
@@ -201,7 +217,7 @@ def run_status(since: int = 0) -> dict:
         elapsed = ((RUN.finished or time.time()) - RUN.started) if RUN.started else 0
         return {"state": RUN.state, "run_type": RUN.run_type, "stage": RUN.stage, "log": RUN.log[since:],
                 "log_length": len(RUN.log), "elapsed": elapsed, "error": RUN.error, "files": RUN.files,
-                "done": RUN.done}
+                "done": RUN.done, "info": RUN.info}
 
 
 def run_results() -> dict:

@@ -1,7 +1,7 @@
-"""Run type "blocks": the studies of the blocks in elements/ run by the engine in system/, from a system case (one input
-file per block): the gas boiler's, the heat storage's, then the battery's, for those the system has, and the
-electricity side of every system (system/run_case.py). For a battery study the reference run type (battery_study.py)
-takes the same case and gives the same battery results (system/compare.py).
+"""Run type "blocks": the blocks in elements/ run by the engine in system/, from a system case (one input file per
+block): every ticked block sized together, each block's year at its size, with and without each technology, the
+site's yearly cost, the technical summary, the sensitivity of the sizes and the battery check (system/run_case.py).
+The reference run type (battery_study.py) runs the reference battery model on the same case.
 
 Ancillary services: off is the same overrides as for the reference, routed to the battery block."""
 from __future__ import annotations
@@ -14,12 +14,12 @@ from common import parameters as P
 from elements.battery import sizing
 from elements.grid import block as grid
 from elements.ng_boiler import sizing as boiler_sizing
-from elements.thermal_storage import sizing as storage_sizing
 from general.commercial import block as commercial
-from interface.adapters.battery_view import (battery_page, boiler_page, compare_page, electricity_page, first_stage,
-                                             results_for_page, storage_page, system_page)
+from interface.adapters.battery_view import (battery_page, boiler_page, co2_page, effects_page, electricity_page,
+                                             first_stage, heat_pump_page, results_for_page, storage_page,
+                                             system_page)
 from interface.tables import clean, read_table
-from system import dispatch, joint, setup
+from system import battery_check, dispatch, joint, run_case, setup
 from system.run_case import run as run_studies
 from system.run_case import summary_of, write_results
 
@@ -30,27 +30,18 @@ BLOCKS_ONE_OF: list = []   # no block to size is needed: the electricity side ru
 BLOCKS_ALLOWED = list(setup.BLOCKS)
 ROOT = Path(__file__).resolve().parents[2]
 # progress: a log line containing the marker moves the run to that stage
-STAGES = [("Reading", 1), ("=== JOINT SIZING ===", 2), ("EACH BLOCK LEFT OUT", 3), ("BOILER SIZING SWEEP", 4),
-          ("Boiler chosen", 5), ("HEAT STORAGE SIZING SWEEP", 6), ("HEAT STORAGE IN THE SYSTEM", 6),
-          ("Heat storage chosen", 7), ("Auto DUP", 8), ("Regime ", 8), ("Solving the year without battery", 9),
-          ("BATTERY SIZING SWEEP", 10), ("Chosen:", 11), ("=== ELECTRICITY", 12), ("=== SITE YEARLY COST", 13),
-          ("=== SCENARIO B", 14), ("=== COMPARISON", 15), ("Writing", 16)]
-STAGE_LABELS = [   # stage, label, counts the sizes solved, the block it belongs to ("joint": the joint sizing)
+STAGES = [("Reading", 1), ("=== JOINT SIZING ===", 2), ("=== THE YEAR AT THE CHOSEN SIZES", 3),
+          ("=== WITH AND WITHOUT", 4), ("=== SITE YEARLY COST", 5), ("=== SENSITIVITY", 6), ("=== BATTERY CHECK", 7),
+          ("Writing", 8)]
+STAGE_LABELS = [   # stage, label, counts the years solved, the block or option it belongs to
     (1, "Read the inputs", False, None),
-    (2, "Joint sizing: every sized block optimised together", False, "joint"),
-    (3, "Joint sizing: each block left out once, for its value in the system", False, "joint"),
-    (4, "Gas boiler: its year at each size tested", True, "ng_boiler"),
-    (5, "Gas boiler: the chosen size's year", False, "ng_boiler"),
-    (6, "Heat storage: its year at each size tested", True, "thermal_storage"),
-    (7, "Heat storage: the chosen size's year", False, "thermal_storage"),
-    (9, "Battery: optimise the year without battery", False, "battery"),
-    (10, "Battery: its year at each size tested", True, "battery"),
-    (11, "Battery: the chosen size's bill, value and payback", False, "battery"),
-    (12, "Electricity: supply, self-consumption and the grid bill", False, None),
-    (13, "The site's yearly cost", False, None),
-    (14, "Scenario B: the same run without the blocks it leaves out", False, "compare"),
-    (15, "Comparison of scenarios A and B", False, "compare"),
-    (16, "Write summary_<tag>.json and results_<tag>.xlsx", False, None),
+    (2, "Sizing: every ticked block sized together, for the lowest yearly cost of the site", False, None),
+    (3, "The year at the chosen sizes: each block's year, the electricity side", False, None),
+    (4, "With and without each technology: the system without it sized again", False, None),
+    (5, "The money: the site's yearly cost", False, None),
+    (6, "Sensitivity: each size -10 % and +10 %, operation only", True, "sensitivity"),
+    (7, "Battery check: the reference sweep", True, "battery_check"),
+    (8, "Write summary_<tag>.json and results_<tag>.xlsx", False, None),
 ]
 
 
@@ -59,19 +50,16 @@ def track(run, text: str) -> None:
     for marker, stage in STAGES:
         if marker in text:
             run.stage = max(run.stage, stage)
-    if " kWh of heat ..." in text:
-        run.done["thermal_storage"] = run.done.get("thermal_storage", 0) + 1
-    elif " kWh ..." in text:
-        run.done["battery"] = run.done.get("battery", 0) + 1
-    elif " kW ..." in text:
-        run.done["ng_boiler"] = run.done.get("ng_boiler", 0) + 1
+    if run.stage == 6 and " %: " in text:
+        run.done["sensitivity"] = run.done.get("sensitivity", 0) + 1
+    elif run.stage == 7 and " kWh ..." in text:
+        run.done["battery_check"] = run.done.get("battery_check", 0) + 1
 
 
 def options() -> dict:
     return {"id": ID, "name": NAME, "blocks_required": BLOCKS_REQUIRED, "blocks_one_of": BLOCKS_ONE_OF,
             "blocks_allowed": BLOCKS_ALLOWED, "markets": grid.markets(), "business_models": commercial.business_models(),
-            "sizing_defaults": sizing.DEFAULTS, "boiler_sizing_defaults": boiler_sizing.DEFAULTS,
-            "storage_sizing_defaults": storage_sizing.DEFAULTS, "sizing_modes": ["joint", "sequential"],
+            "sizing_defaults": sizing.DEFAULTS,
             "stages": [dict(stage=s, label=label, counts=counts, block=b) for s, label, counts, b in STAGE_LABELS],
             "model_dir": str(ROOT / "elements")}
 
@@ -171,28 +159,63 @@ def preview(case: dict) -> dict:
             "subsidy_threshold_kwh": sub.battery_threshold_kwh, "price_after_subsidy_100": s.battery_net_capex(ref),
             "battery_life_yr": c.battery_life_yr})
         out["sizing"] = {**cfg, "sizes": sizes, "cap": cap}
+    gh = s.greenhouse
+    if s.heat_side:
+        out["heat"] = {"heat_demand_mwh": (gh.heat * dt).sum() / 1000 if gh.heat is not None else None,
+                       "heat_peak_kw": gh.heat.max() if gh.heat is not None else None,
+                       "co2_demand_t": (gh.co2 * dt).sum() / 1000 if gh.co2 is not None else None,
+                       "co2_peak_kg_h": gh.co2.max() if gh.co2 is not None else None}
+    if s.heat_pump is not None:
+        hp = s.heat_pump
+        hcfg = (case["blocks"].get("heat_pump") or {}).get("sizing") or {}
+        fixed = hcfg.get("objective") == "custom" and hcfg.get("custom_kw")
+        el_for_heat = gh.heat / hp.cop                      # the electricity to give the whole demand
+        hp_price = s.import_price(base) / hp.cop            # energy and network price per kWh of heat
+        out["heat_pump"] = {
+            "cop_mode": hp.cop_mode, "cop_nominal": hp.cop_nominal, "supply_temp_c": hp.supply_temp_c,
+            "ref_outside_temp_c": hp.ref_outside_temp_c, "cop_mean": hp.cop.mean(), "cop_min": hp.cop_min,
+            "cop_max": hp.cop.max(),
+            "outside_temp": None if hp.outside_temp is None else {
+                "mean": hp.outside_temp.mean(), "min": hp.outside_temp.min(), "max": hp.outside_temp.max()},
+            "heat_demand_mwh": (gh.heat * dt).sum() / 1000, "heat_peak_kw": gh.heat.max(),
+            "electricity_all_heat_mwh": (el_for_heat * dt).sum() / 1000, "electricity_heat_peak_kw": el_for_heat.max(),
+            "heat_price_mean": hp_price.mean(), "heat_price_min": hp_price.min(), "heat_price_max": hp_price.max(),
+            "capex_per_kw": c.capex["heat_pump_per_kw_th"], "fixed_om_per_kw_year": c.capex["heat_pump_fixed_om_per_kw_year"],
+            "life_yr": c.heat_pump_life_yr, "sized": "fixed" if fixed else "joint",
+            "custom_kw": hcfg.get("custom_kw") if fixed else None,
+            "co2_source": bool(s.co2_blocks), "import_auto": g.get("import_max_kw") is None, "import_max_kw": import_max}
+        if s.boiler is not None:   # the boiler's running cost per kWh of heat, and how often the heat pump's is lower
+            boiler_price = s.gas.cost_per_kwh / s.boiler.efficiency + c.boiler_var_om_per_kwh
+            out["heat_pump"].update(boiler_heat_price_mean=boiler_price.mean(),
+                                    cheaper_h=float((hp_price < boiler_price).sum() * dt))
     if s.boiler is not None:
-        bcfg = {**boiler_sizing.DEFAULTS, **((case["blocks"].get("ng_boiler") or {}).get("sizing") or {})}
-        gh = s.greenhouse
         out["boiler"] = {
-            "needed_kw": boiler_sizing.needed_kw(s), "sizes": boiler_sizing.size_list(s, bcfg),
-            "objective": bcfg["objective"], "efficiency": s.boiler.efficiency, "co2_use_frac": s.boiler.co2_use_frac,
+            "needed_kw": boiler_sizing.needed_kw(s), "efficiency": s.boiler.efficiency, "co2_use_frac": s.boiler.co2_use_frac,
             "co2_mode": gh.co2_mode, "heat_demand_mwh": (gh.heat * dt).sum() / 1000, "heat_peak_kw": gh.heat.max(),
             "co2_demand_t": (gh.co2 * dt).sum() / 1000, "co2_peak_kg_h": gh.co2.max(),
             "gas_price_mean": s.gas.price.mean(), "gas_price_min": s.gas.price.min(), "gas_price_max": s.gas.price.max(),
             "emission_factor": s.gas.emission_factor, "levy_per_kg": s.gas.levy_per_kg,
             "capex_per_kw": c.capex["boiler_per_kw_th"], "life_yr": c.boiler_life_yr}
     plan = joint.plan_of(s, case["blocks"])
-    mode = (case.get("system") or {}).get("sizing") or "joint"
-    out["joint_sizing"] = {"mode": "joint" if mode == "joint" and len(plan) >= 2 else "sequential", "asked": mode,
-                     "plan": plan, "battery_max_kwh": joint.battery_limit(s, case["blocks"]) if s.battery else None}
+    out["joint_sizing"] = {"mode": "joint", "plan": plan,
+                           "battery_max_kwh": joint.battery_limit(s, case["blocks"]) if s.battery else None,
+                           "sensitivity": run_case.sensitivity_on(case),
+                           "battery_check": s.battery is not None and plan.get("battery", 0) is None
+                           and battery_check.enabled(case)}
+    if s.external_co2 is not None:
+        x, gh = s.external_co2, s.greenhouse
+        out["co2"] = {"price_mean": x.price.mean(), "price_min": x.price.min(), "price_max": x.price.max(),
+                      "co2_demand_t": (gh.co2 * dt).sum() / 1000, "co2_peak_kg_h": gh.co2.max(),
+                      "fixed_per_year": x.fixed_per_year, "max_kg_h": x.max_kg_h}
+        if s.boiler is not None:   # what burning gas for CO2 costs per kg when the heat is not needed
+            per_kg = s.gas.emission_factor * s.boiler.co2_use_frac
+            eq = (s.gas.cost_per_kwh + c.boiler_var_om_per_kwh * s.boiler.efficiency) / per_kg
+            out["co2"].update(gas_eq_mean=eq.mean(), gas_eq_min=eq.min(), gas_eq_max=eq.max())
     if s.storage is not None:
-        scfg = {**storage_sizing.DEFAULTS, **((case["blocks"].get("thermal_storage") or {}).get("sizing") or {})}
-        t, boiler_kw = s.storage, boiler_sizing.needed_kw(s)   # the boiler is not sized yet: the size it needs
+        t = s.storage
         temp = t.outside_temp
         out["storage"] = {
-            "sizes": storage_sizing.size_list(s, scfg, boiler_kw), "objective": scfg["objective"],
-            "boiler_kw_estimate": boiler_kw, "charge_efficiency": t.eff_charge,
+            "heat_peak_kw": float(s.greenhouse.heat.max()), "charge_efficiency": t.eff_charge,
             "discharge_efficiency": t.eff_discharge, "power_per_kwh": t.power_per_kwh, "loss_mode": t.loss_mode,
             "loss_mean": t.loss_per_hour.mean(), "loss_min": t.loss_per_hour.min(), "loss_max": t.loss_per_hour.max(),
             "outside_temp": None if temp is None else {"mean": temp.mean(), "min": temp.min(), "max": temp.max()},
@@ -219,12 +242,15 @@ def run(case_path: Path, out_dir: Path, tag: str, log) -> tuple[dict, dict]:
                   "fine_grid_kwh": cfg["fine_grid_kwh"], "fine_window_kwh": cfg["fine_window_kwh"],
                   "regime_rule": bool(s.grid.tariff.rule), "threshold_h": s.grid.tariff.dup_threshold_h,
                   "dispatch_kwh_per_kwh": s.battery.tech.dispatch_kwh(1.0), "ancillary_on": _ancillary_on(s),
-                  "joint": out["mode"] == "joint"}
+                  "joint": True, "plan": out["joint"]["plan"].get("battery")}
         battery = battery_page(out["battery"], s.dt, choice)
     boiler = boiler_page(out["boiler"], s.dt) if out["boiler"] is not None else None
     storage = storage_page(out["thermal_storage"], s.dt) if out["thermal_storage"] is not None else None
-    page = results_for_page(ID, battery=battery, boiler=boiler, storage=storage,
+    heat_pump = heat_pump_page(out["heat_pump"], s) if out["heat_pump"] is not None else None
+    page = results_for_page(ID, battery=battery, boiler=boiler, storage=storage, heat_pump=heat_pump,
                             electricity=electricity_page(out["electricity"]), summary=summary_of(out),
-                            system=system_page(out["mode"], out["costs"], out["joint"]),
-                            compare=compare_page(out["compare"]) if out.get("compare") else None)
+                            system=system_page(out["mode"], out["costs"], out["joint"], out["technical"],
+                                               out["sensitivity"], out["battery_check"]),
+                            effects=effects_page(out["effects"], out["mode"]) if out.get("effects") else None,
+                            co2=co2_page(out["heat_side"], s) if s.external_co2 is not None else None)
     return page, {"summary": str(summary_path), "results": str(workbook_path)}

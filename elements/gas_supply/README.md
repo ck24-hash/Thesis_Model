@@ -6,7 +6,8 @@ what 1 kWh of gas costs (lower heating value):
     cost_t = price_t + levy x ef            (per kWh of gas; levy per kg CO2, ef in kg CO2 per kWh of gas)
 
 Its capacity is what the gas users can burn (today the boiler's S / eta), so it never limits them. Every block that
-burns gas takes it from the bus `gas` (today the gas boiler; the CHP later).
+burns gas takes it from the bus `gas` (today the gas boiler; the CHP later). It follows the blocks that burn gas
+(`follows` in `common/blocks.json`): the interface adds and removes it with them.
 
 **Input file** (its own): the gas price, column `Gas price (EUR/kWh)` (role `gas_price_eur_kwh`), EUR per kWh of gas.
 Any step: a daily or hourly file is repeated in each quarter hour (prices are repeated). The price is converted to the

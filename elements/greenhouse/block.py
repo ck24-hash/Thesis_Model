@@ -1,6 +1,6 @@
 """Greenhouse demand: the site's electricity load, heat demand and CO2 demand, per step, from the block's one input
-file. The electricity load is always read. Heat and CO2 demand are read when a block supplies them (today the gas
-boiler):
+file. The electricity load is always read. Heat and CO2 demand are read when a block supplies them (heat: the gas
+boiler or the heat pump; CO2: the gas boiler or the external CO2):
 
     heat   must be met: a Load on the heat bus; heat_unmet (a slack at a penalty) only keeps the year solvable when the
            heat blocks are too small, and a size that needs it is not chosen.
@@ -24,9 +24,9 @@ COLUMNS = [
     dict(role="load_kw", column="Loadcurve (kW)", about="the site's electricity consumption", unit="kW", kind="power",
          needed="always"),
     dict(role="heat_kw", column="Heat demand (kW)", about="heat demand", unit="kW", kind="power",
-         needed="with a heat block (gas boiler)"),
+         needed="with a heat source (gas boiler, heat pump)"),
     dict(role="co2_kg_h", column="CO2 demand (kg/h)", about="CO2 demand for enrichment", unit="kg/h", kind="power",
-         needed="with a CO2 source (gas boiler)"),
+         needed="with a CO2 source (gas boiler, external CO2)"),
 ]
 OWNS = {"demand": None}
 PARAMS_DIR = Path(__file__).resolve().parent / "params"
@@ -57,16 +57,18 @@ class Greenhouse:
     def add_to(self, n: pypsa.Network) -> None:
         n.add("Load", "load", bus=BUS, p_set=self.load)
 
-    def add_heat_co2_to(self, n: pypsa.Network, slack: bool = True) -> None:
-        """The heat demand and, when it must be met, the CO2 demand, each with its slack. slack=False: no slack, the
-        demand must be met (the joint sizing, where the heat blocks' sizes are free)."""
-        d = self.params["demand"]
+    def add_heat_to(self, n: pypsa.Network, slack: bool = True) -> None:
+        """The heat demand with its slack. slack=False: no slack, the demand must be met (the joint sizing, where the
+        heat blocks' sizes are free)."""
         n.add("Load", "heat_demand", bus=HEAT_BUS, p_set=self.heat)
         if slack:
             n.add("Generator", "heat_unmet", bus=HEAT_BUS, p_nom=max(float(self.heat.max()), 1.0),
-                  marginal_cost=d["unmet_heat_penalty_per_kwh"])
+                  marginal_cost=self.params["demand"]["unmet_heat_penalty_per_kwh"])
+
+    def add_co2_to(self, n: pypsa.Network, slack: bool = True) -> None:
+        """The CO2 demand with its slack, when it must be met."""
         if self.co2_mode == "required":
             n.add("Load", "co2_demand", bus=CO2_BUS, p_set=self.co2)
             if slack:
                 n.add("Generator", "co2_unmet", bus=CO2_BUS, p_nom=max(float(self.co2.max()), 1.0),
-                      marginal_cost=d["unmet_co2_penalty_per_kg"])
+                      marginal_cost=self.params["demand"]["unmet_co2_penalty_per_kg"])

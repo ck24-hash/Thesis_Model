@@ -12,13 +12,14 @@ Made up for trying the model. The numbers mean nothing: no real site or grower i
 
     python system\run_case.py "examples\battery\case_example_CH.json"                     (the blocks)
     python elements\battery_reference\run_case.py "examples\battery\case_example_CH.json"   (the reference model)
-    python system\compare.py "examples\battery\case_example_CH.json"                      (both, compared)
+    python system\compare.py "examples\battery\case_example_CH.json"                      (the blocks' battery sweep and the reference, compared)
 
-or open the case in the interface (`python interface\app.py`, step 1).
+or open the case in the interface (`python interface\app.py`, the case list on the System page).
 
 The results are written next to the case file: `summary_<tag>.json` and `results_<tag>.xlsx`.
-Run time on a laptop: about 1 to 2 minutes per example (CH also adds the subsidised maximum size, so it picks
-about 2,495 kWh there).
+Run time on a laptop with the reference model: about 1 to 2 minutes per example (CH also adds the subsidised maximum
+size, so it picks about 2,495 kWh there). The blocks also run the joint sizing, the sensitivity and the battery check,
+so they take longer (`examples/blocks/case_blocks_CH.json`: 282 s; these examples [TO CHECK]).
 
 ## Use for a real study
 
@@ -53,7 +54,7 @@ from the CH example and mean nothing, because the data is synthetic.
 | Sheet | What it holds |
 |---|---|
 | Summary | The same list as the JSON. |
-| Sizing sweep | One row per battery size tried: yearly value, investment, payback, lifetime profit, self-sufficiency, self-consumption, regime. The chosen size is the best row by the objective in the case file (profit, payback or custom size). CH also adds the largest subsidised size to the list. |
+| Sizing sweep | The reference model only (with the blocks the same table is in the Battery check sheet). One row per battery size tried: yearly value, investment, payback, lifetime profit, self-sufficiency, self-consumption, regime. The chosen size is the best row by the objective in the case file (profit, payback or custom size). CH also adds the largest subsidised size to the list. |
 | Payback | Whole-project scenarios: PV only (8.4 years); PV and battery with no subsidy (23.9 years); PV and battery with the CH battery subsidy (15.1 years). These are longer than the battery-only 3.6 years because they include the PV and the battery's replacements over 25 years. |
 | Yearly bills | The bill split into import energy, network, federal levy, capacity charge (peak-demand fee), export revenue and total, in three columns: no PV, PV only, PV and battery. Also the kWh imported and the peak kW (252, 247, 99: the peak shaving). |
 | Monthly no battery, Monthly battery | 12 rows each: import and export (MWh), costs, PV used directly or through the battery, self-consumption, self-sufficiency, billed peak, capacity charge. The battery sheet adds MWh charged and discharged. |
@@ -61,3 +62,11 @@ from the CH example and mean nothing, because the data is synthetic.
 
 Start with Sizing sweep (is the chosen size at an edge of the list or a clear optimum?), then Payback and Yearly bills to see
 what the choice means for the project.
+
+Run with the blocks (`system\run_case.py`), the battery is sized together with the rest of the site, and the Summary,
+Payback, bills, monthly and Dispatch sheets are for that size. There is no Sizing sweep sheet; the workbook has
+more sheets: Equipment (each size, how it was found, how hard it works) and Energy over the year; Site yearly cost;
+Sensitivity (each size -10 % and +10 %); Battery check (the joint size against the sweep, with the sweep's table);
+Joint sizing; With and without (one row per technology) and a sheet `Without <block>` for each; the electricity side
+(Electricity, Electricity bill, Electricity monthly, each also with battery). The summary JSON then also holds
+`electricity`, `site`, `effects` and `battery_check`.

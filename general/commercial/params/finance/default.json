@@ -7,5 +7,7 @@
   "boiler_life_yr": 20,
   "boiler_life_note": "gas boiler life, years. TO CHECK: placeholder",
   "thermal_storage_life_yr": 25,
-  "thermal_storage_life_note": "heat storage life, years. TO CHECK: placeholder"
+  "thermal_storage_life_note": "heat storage life, years. TO CHECK: placeholder",
+  "heat_pump_life_yr": 20,
+  "heat_pump_life_note": "heat pump life, years. TO CHECK: placeholder"
 }

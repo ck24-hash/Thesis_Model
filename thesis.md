@@ -9,8 +9,8 @@ Master thesis at EPFL, in collaboration with Voltiris. This file describes the l
 - Keep the model modular: one class or function per block, scenarios defined by which blocks are active, not by separate code paths.
 - Every timestep must close the heat, electricity and CO2 balances. Add a test that fails if any balance has a residual above a small tolerance.
 - Units: kW, kWh, kg CO2, CHF or EUR (one currency in the model, conversion in the inputs), temperatures in degC in inputs and K in equations.
-- Default resolution: hourly, 8760 h per year. Keep the timestep as a parameter `dt`.
-- Do not model Voltiris optics. Voltiris is an hourly electricity profile (kW per kW installed or per m2) plus, optionally, an effect on greenhouse demand [TO CHECK].
+- Default resolution: 15 min, 35,040 steps per year (as the battery model); coarser input data (30 min, hourly, daily) is converted to 15 min. Keep the timestep as a parameter `dt`.
+- Do not model Voltiris optics. Voltiris is an electricity profile (the yield of one module x the module count) plus, optionally, an effect on greenhouse demand [TO CHECK].
 - Keep answers and code comments plain and short. No generic sustainability text.
 
 ## 1. Thesis scope
@@ -238,11 +238,17 @@ Keep this list in the code repo and update it. IDs are used in code comments.
 - A13 Grid emission factor is constant per country by default. Option: hourly.
 - A14 Single greenhouse, one electrical connection point, no internal network losses.
 - A15 Heat and CO2 demand not covered by the system is a slack at a high penalty (a solver device, not a price), reported as unmet. A size that leaves demand unmet does not count as covering it.
-- A16 Sizing: by default the sized blocks (boiler, heat storage, battery) are sized together in one optimisation for the site's lowest yearly cost, and each block's value is the yearly cost without it (others re-sized) minus with it. Option "sequential": each block sized alone with the others fixed (boiler, then heat storage, then battery); then the heat storage cannot make the boiler smaller.
+- A16 Sizing: the sized blocks (boiler, heat pump, heat storage, battery) are always sized together in one optimisation whose objective is the site's yearly cost (running costs + each investment spread over its life); a size fixed in the case stays (0 = not installed). Each block's value is the yearly cost without it (the others sized again) minus with it. The results show the technical side first (each size, how hard it works, the year's energy, what each technology changes), then the money (since 4 Nov 2026; before, an option sized one block at a time).
 - A17 All the CO2 of the gas burnt counts as emitted, including the part dosed into the greenhouse.
 - A18 Heat storage losses are a share of the heat stored per hour: constant, per season, or from the outside temperature with a fixed mean tank temperature (the tank temperature does not follow its state of charge).
-- A19 Yearly cost of an investment = investment / life, no discounting (the rule of the lifetime profit and lifetime cost). A discount rate is not modelled yet. TO CHECK with the supervisors.
-- A20 In the joint sizing the battery's price per kWh, usable share and reserve are taken at a reference size (refined once at the size found); its EMS costs are checked after the optimisation; the one-meter rules use the reference size's power.
+- A19 Yearly cost of an investment = investment / life, no discounting (the rule of the lifetime profit and lifetime cost). A discount rate is not modelled yet. TO CHECK with the supervisors. The battery is spread over the PV life as its payback table counts it: the first purchase after subsidy with the EMS hardware, plus the replacements within the PV life at a share of the gross price (unsubsidised), / the PV life.
+- A20 In the joint sizing the battery's price per kWh, usable share and reserve are taken at a reference size (refined once at the size found); its EMS costs are checked after the optimisation (a battery size fixed in the case is kept); in each system without a technology the check is shorter: skipped when the battery at its limit saves at least its EMS costs beyond its own cost (the limit's shadow price), else made against the year without battery with the other sizes kept, not sized again; the one-meter rules use the reference size's power. With a heat pump, the regime without battery is set from the solved year's DUP (its draw is not known before).
+- A21 Bought CO2 (external supply) is not counted in the site's emissions: it is produced elsewhere. With it the CO2 demand must be met (the by-product mode does not apply).
+- A22 Heat pump (S2, air source): COP = nominal COP x (T_supply - T_ref) / (T_supply - T_out), a constant share of the Carnot COP (section 3.4), with T_supply = 60 °C and the outside temperature of its input file; or a constant COP. Its size (kW of heat) holds at any outside temperature; no minimum part load; one supply temperature for the greenhouse and for charging the heat storage. Nominal COP 3.0 at 7 °C, price, O&M and life are placeholders [TO CHECK].
+- A23 The heat pump's electricity is part of the site's load (bills, self-consumption, self-sufficiency). Under EaaS, during a PV surplus of the greenhouse load the heat pump runs on the surplus first, what is left is exported, and the site imports only what the heat pump draws beyond the surplus; an LP can apply this only within the quarter hour (time sharing: import <= max(1 - surplus / heat pump's largest draw, 0) x its draw), so a step's averages may show some import and export together (a strict rule with one binary per surplus step changed the yearly cost by 0.13 % at 6,000 modules and was 3 times slower). In the joint sizing that limit uses the heat pump's draw at the heat demand's peak (or its fixed size). Rules fixed before the solve use the greenhouse load only: the PV-only battery account (PV the heat pump uses is not taken off the PV the battery may store) and the automatic grid import limit (2 x the highest of the greenhouse load + the heat pump's draw to give the whole heat demand). Where exporting pays more than importing, the one-meter import limit is raised by the heat pump's draw.
+- A24 With a heat pump, the battery's study at its joint size values the battery with the heat side too (gas and CO2 bought it saves by changing when the heat pump runs).
+- A25 Sensitivity of the sizes: after the sizing, each installed sized block and the Voltiris modules at -10 % and +10 % of its size, everything else at its chosen size; only the year's operation is solved again (no new sizing), under the joint sizing's regime. Unmet heat or CO2 is reported next to the yearly cost, not priced. Switch: a tick on the Run page, "system": {"sensitivity": false} in the case.
+- A26 Battery check: when the run sizes the battery, it is sized again by the reference model's sweep (a list of sizes, the highest lifetime profit or the shortest payback, first purchase over the battery life) with the other blocks at their joint sizes, and set against the joint size (lowest yearly cost of the site, battery and replacements over the PV life). The two rules can pick different sizes. Switch: a tick on the Run page, "system": {"battery_check": false} in the case.
 
 ## 6. Constraints (summary)
 
@@ -369,6 +375,8 @@ Report break-even values where a scenario overtakes the baseline or another scen
 - Business model decisions for the DC (A9).
 
 ## 15. Suggested code structure
+
+Built instead as in `PLAN.md`: one folder per block in `elements/`, the general items in `general/`, the engine in `system/`, shared code and the block and scenario lists in `common/`, the interface in `interface/`.
 
 ```
 thesis_model/
